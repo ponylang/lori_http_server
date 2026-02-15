@@ -28,7 +28,16 @@ Built on lori (v0.8.1). Lori provides raw TCP I/O with a connection-actor model:
 
 See [Discussion #2](https://github.com/ponylang/lori_http_server/discussions/2) for the phased implementation plan.
 
+## Release Notes
+
+No release notes until after the first release. This project is pre-1.0 and hasn't been released yet — there are no users to notify of changes.
+
 ## File Layout
 
 - `http_server/` — main package source
+  - `method.pony` — HTTP method types (`Method` interface, 9 primitives, `Methods` parse/enumerate)
+  - `version.pony` — HTTP version types (`HTTP10`, `HTTP11`, `Version` closed union)
+  - `status.pony` — HTTP status codes (`Status` interface, 35 standard primitives)
+  - `headers.pony` — Case-insensitive header collection (`Headers` class)
+  - `_response_serializer.pony` — Response wire-format serializer (package-private)
 - `examples/` — example programs
