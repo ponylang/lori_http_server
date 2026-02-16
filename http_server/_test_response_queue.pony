@@ -9,9 +9,12 @@ class \nodoc\ ref _TestQueueNotify is _ResponseQueueNotify
   embed flushed_data: Array[ByteSeq]
   embed completions: Array[Bool]
   var close_on_complete: Bool = false
+  var close_on_flush_data: Bool = false
+  var flush_data_close_trigger: String val = ""
 
-  // Set by test to trigger close() on _response_complete when keep_alive
-  // is false, simulating the connection's behavior.
+  // Set by test to trigger close() on _response_complete (when keep_alive
+  // is false) or on _flush_data (when data matches the trigger string),
+  // simulating the connection closing due to send errors.
   var queue: (_ResponseQueue | None) = None
 
   new ref create() =>
@@ -20,6 +23,17 @@ class \nodoc\ ref _TestQueueNotify is _ResponseQueueNotify
 
   fun ref _flush_data(data: ByteSeq) =>
     flushed_data.push(data)
+    if close_on_flush_data then
+      let s: String val = match data
+      | let sv: String val => sv
+      | let a: Array[U8] val => String.from_array(a)
+      end
+      if s == flush_data_close_trigger then
+        match queue
+        | let q: _ResponseQueue => q.close()
+        end
+      end
+    end
 
   fun ref _response_complete(keep_alive: Bool) =>
     completions.push(keep_alive)
@@ -343,6 +357,50 @@ class \nodoc\ iso _TestQueueThrottleUnthrottle is UnitTest
     else
       h.fail("Throttle flush assertion index out of bounds")
     end
+
+class \nodoc\ iso _TestQueueCloseOnFlushData is UnitTest
+  """
+  Register 2 entries. Finish entry 1 (non-head, buffers). Finish entry 0
+  (head). During the cascade flush, _flush_data sees entry 1's data and
+  triggers close(). Verify the cascade stops cleanly instead of crashing
+  at _Unreachable() in _advance_head().
+  """
+  fun name(): String => "response-queue/close on flush data"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+    notify.close_on_flush_data = true
+    notify.flush_data_close_trigger = "e1-data"
+    notify.queue = queue
+
+    let id0 = queue.register(true)
+    let id1 = queue.register(true)
+
+    // Entry 1 (non-head): send data and finish — buffers and marks finished
+    queue.send_data(id1, "e1-data")
+    queue.finish(id1)
+
+    // Entry 0 (head): send data and finish — triggers cascade
+    // _advance_head removes entry 0, then _flush_new_head flushes entry 1's
+    // buffered data. _flush_data("e1-data") triggers close(). Without the
+    // fix, _advance_head() would crash on the empty _entries array.
+    queue.send_data(id0, "e0-data")
+    queue.finish(id0)
+
+    // Verify entry 0's data flushed (it was head, sent immediately)
+    // and entry 1's data flushed during cascade (triggering close)
+    let flushed = notify.flushed_as_strings()
+    h.assert_eq[USize](2, flushed.size())
+    try
+      h.assert_eq[String val]("e0-data", flushed(0)?)
+      h.assert_eq[String val]("e1-data", flushed(1)?)
+    else
+      h.fail("Flush assertion index out of bounds")
+    end
+
+    // Entry 0's completion should have fired before the cascade
+    h.assert_eq[USize](1, notify.completions.size())
 
 // ---------------------------------------------------------------------------
 // Permutation generator for property tests

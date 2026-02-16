@@ -54,10 +54,12 @@ class ref _ResponseQueue
   callback (unless throttled). For non-head entries, data is buffered until
   the entry becomes the head.
 
-  **Re-entrancy contract**: `close()` may be called from within a
-  `_response_complete` callback (triggered by `finish()`). The recursive
-  flush in `finish()` checks the `_closed` flag before each subsequent
-  entry, stopping the cascade safely.
+  **Re-entrancy contract**: `close()` may be called from within either
+  callback — `_response_complete` (e.g., keep-alive=false triggers
+  connection close) or `_flush_data` (e.g., TCP send error triggers
+  connection close). The flush methods check `_closed` before each
+  `_flush_data` call and before cascading into `_advance_head()`,
+  stopping the cascade safely.
   """
   let _notify: _ResponseQueueNotify ref
   var _head_id: U64 = 0
@@ -112,9 +114,9 @@ class ref _ResponseQueue
     `_response_complete` and advances to the next entry, flushing any
     buffered data for entries that are already complete (cascading flush).
 
-    The cascading flush checks `_closed` before each entry to handle the
-    case where `_response_complete(false)` triggers connection close which
-    calls `close()`.
+    The cascading flush checks `_closed` before each entry to handle
+    `close()` being called from within a callback (see re-entrancy
+    contract on the class docstring).
     """
     if _closed then return end
     let index = (id - _head_id).usize()
@@ -149,8 +151,8 @@ class ref _ResponseQueue
     """
     Discard all pending entries. All subsequent operations become no-ops.
 
-    Safe to call from within a `_response_complete` callback — the
-    `_closed` flag stops cascading flushes in `_advance_head`.
+    Safe to call from within `_response_complete` or `_flush_data`
+    callbacks — the `_closed` flag stops cascading flushes.
     """
     _closed = true
     _entries.clear()
@@ -191,7 +193,7 @@ class ref _ResponseQueue
         _notify._flush_data(chunk)
       end
       entry.data.clear()
-      if entry.finished then
+      if entry.finished and (not _closed) then
         _advance_head()
       end
     end
@@ -207,7 +209,7 @@ class ref _ResponseQueue
         _notify._flush_data(chunk)
       end
       entry.data.clear()
-      if entry.finished then
+      if entry.finished and (not _closed) then
         _advance_head()
       end
     end

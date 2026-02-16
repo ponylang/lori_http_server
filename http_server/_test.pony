@@ -93,6 +93,7 @@ actor \nodoc\ Main is TestList
     test(_TestQueueStreamingHead)
     test(_TestQueueStreamingNonHead)
     test(_TestQueueThrottleUnthrottle)
+    test(_TestQueueCloseOnFlushData)
 
     // Pipelining and streaming integration tests
     test(_TestPipelineCorrectness)

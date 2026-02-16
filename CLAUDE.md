@@ -72,3 +72,4 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `server.pony` — Listener actor (`Server`, accepts connections, creates `_Connection` actors)
 - `examples/` — example programs
   - `basic/main.pony` — Hello World HTTP server with `ServerNotify`
+  - `streaming/main.pony` — Chunked transfer encoding streaming response
