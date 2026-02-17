@@ -17,7 +17,7 @@ class ref Responder
   Two response modes are available:
 
   **Complete response** — build the full response with `ResponseBuilder`
-  and send it via `respond_raw()`:
+  and send it via `respond()`:
   ```pony
   let body: String val = "Hello!"
   let response = ResponseBuilder(StatusOK)
@@ -25,7 +25,7 @@ class ref Responder
     .finish_headers()
     .add_chunk(body)
     .build()
-  responder.respond_raw(response)
+  responder.respond(response)
   ```
 
   **Streaming response** — use chunked transfer encoding for large or
@@ -51,7 +51,7 @@ class ref Responder
     _id = id
     _version = version
 
-  fun ref respond_raw(raw: ByteSeq) =>
+  fun ref respond(raw: ByteSeq) =>
     """
     Send a pre-serialized HTTP response, bypassing internal serialization.
 
@@ -62,7 +62,7 @@ class ref Responder
     responses.
 
     Only valid when no response has been started. Subsequent calls are
-    silently ignored (both after `respond_raw()` and after any other
+    silently ignored (both after `respond()` and after any other
     response method).
     """
     match _state
@@ -84,7 +84,7 @@ class ref Responder
     `send_chunk()` calls and a final `finish_response()`.
 
     Silently ignored for HTTP/1.0 requests, which do not support chunked
-    transfer encoding. Use `respond_raw()` with a `ResponseBuilder`-
+    transfer encoding. Use `respond()` with a `ResponseBuilder`-
     constructed response instead.
 
     Only valid when no response has been started. Subsequent calls are

@@ -42,7 +42,7 @@ interface ref ResponseBuilderBody
     Produce the complete serialized HTTP response as an immutable byte array.
 
     The result is suitable for caching and reuse across multiple requests via
-    `Responder.respond_raw()`.
+    `Responder.respond()`.
 
     Consumes the internal buffer — a second call returns an empty array.
     """
@@ -69,7 +69,7 @@ primitive ResponseBuilder
     .build()
 
   // Later, in a handler:
-  responder.respond_raw(response)
+  responder.respond(response)
   ```
 
   For use in a `val` factory, wrap the builder in a `recover val` block:

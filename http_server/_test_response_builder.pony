@@ -127,12 +127,12 @@ class \nodoc\ iso _TestResponseBuilderKnownGood is UnitTest
       String.from_array(result),
       "HTTP/1.0 200 OK")
 
-class \nodoc\ iso _TestRespondRaw is UnitTest
+class \nodoc\ iso _TestRespond is UnitTest
   """
-  Verify that Responder.respond_raw() sends raw bytes through the queue
+  Verify that Responder.respond() sends raw bytes through the queue
   and marks the response as complete.
   """
-  fun name(): String => "responder/respond_raw"
+  fun name(): String => "responder/respond"
 
   fun apply(h: TestHelper) =>
     let notify = _TestQueueNotify
@@ -142,7 +142,7 @@ class \nodoc\ iso _TestRespondRaw is UnitTest
     let raw: String val =
       "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
     let responder = Responder._create(queue, id, HTTP11)
-    responder.respond_raw(raw)
+    responder.respond(raw)
 
     // Verify data was flushed
     let flushed = notify.flushed_as_strings()
@@ -160,12 +160,12 @@ class \nodoc\ iso _TestRespondRaw is UnitTest
     h.assert_eq[USize](0, queue.pending(),
       "queue should have no pending entries")
 
-class \nodoc\ iso _TestRespondRawIgnoredAfterFirst is UnitTest
+class \nodoc\ iso _TestRespondIgnoredAfterFirst is UnitTest
   """
-  Verify that a second respond_raw() is silently ignored after the first
+  Verify that a second respond() is silently ignored after the first
   has already been called.
   """
-  fun name(): String => "responder/respond_raw_ignored_after_first"
+  fun name(): String => "responder/respond_ignored_after_first"
 
   fun apply(h: TestHelper) =>
     let notify = _TestQueueNotify
@@ -173,10 +173,10 @@ class \nodoc\ iso _TestRespondRawIgnoredAfterFirst is UnitTest
     let id = queue.register(true)
 
     let responder = Responder._create(queue, id, HTTP11)
-    responder.respond_raw("HTTP/1.1 200 OK\r\n\r\nfirst")
+    responder.respond("HTTP/1.1 200 OK\r\n\r\nfirst")
 
-    // Second call via respond_raw should be silently ignored
-    responder.respond_raw("HTTP/1.1 200 OK\r\n\r\nsecond")
+    // Second call via respond should be silently ignored
+    responder.respond("HTTP/1.1 200 OK\r\n\r\nsecond")
 
     // Only the first response should have been sent
     let flushed = notify.flushed_as_strings()

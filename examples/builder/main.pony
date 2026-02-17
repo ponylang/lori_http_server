@@ -4,7 +4,7 @@ HTTP server using ResponseBuilder to construct responses dynamically.
 Demonstrates `ResponseBuilder` for building and sending HTTP responses.
 The builder constructs the response as a single byte array via a typed
 state machine that guides the caller through status, headers, then body.
-Send the built response via `Responder.respond_raw()`.
+Send the built response via `Responder.respond()`.
 """
 // In user code with corral, this would be: use http_server = "http_server"
 use http_server = "../../http_server"
@@ -57,4 +57,4 @@ class ref _HelloHandler is http_server.Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)

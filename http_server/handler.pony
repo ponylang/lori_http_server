@@ -50,7 +50,7 @@ trait ref Handler
     no body (including `Content-Length: 0`). The body size is bounded by
     `max_body_size` in `ServerConfig` (default 1MB).
 
-    The `responder` is specific to this request. Use `respond_raw()` with
+    The `responder` is specific to this request. Use `respond()` with
     a `ResponseBuilder`-constructed response to send a complete response,
     or use `start_chunked_response()`, `send_chunk()`, and
     `finish_response()` for streaming responses. The handler may hold the
@@ -144,7 +144,7 @@ trait ref StreamingHandler
     """
     Called when the entire request (including any body) has been received.
 
-    The `responder` is specific to this request. Use `respond_raw()` with
+    The `responder` is specific to this request. Use `respond()` with
     a `ResponseBuilder`-constructed response to send a complete response,
     or use `start_chunked_response()`, `send_chunk()`, and
     `finish_response()` for streaming responses. The handler may hold the

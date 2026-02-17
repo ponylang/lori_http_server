@@ -5,7 +5,7 @@ Start a server with `Server`, passing a handler factory and `ServerConfig`.
 
 Most handlers should use `Handler` (buffered), where the complete request
 body is delivered in `request_complete`. Build responses with
-`ResponseBuilder` and send them via `Responder.respond_raw()`:
+`ResponseBuilder` and send them via `Responder.respond()`:
 
 ```pony
 use "http_server"
@@ -28,7 +28,7 @@ class ref MyHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 ```
 
 For streaming request bodies (large uploads, proxying), use
@@ -51,7 +51,7 @@ class ref MyStreamingHandler is StreamingHandler
       .finish_headers()
       .add_chunk("Done!")
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 ```
 
 For streaming responses, use chunked transfer encoding:

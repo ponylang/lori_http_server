@@ -64,4 +64,4 @@ class ref _HelloHandler is http_server.Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)

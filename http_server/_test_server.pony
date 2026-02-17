@@ -319,7 +319,7 @@ class \nodoc\ ref _TestHelloHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Test listener: creates _Connection actors, starts test client
@@ -671,8 +671,8 @@ class \nodoc\ iso _TestMaxPendingOverflow is UnitTest
 class \nodoc\ iso _TestHTTP10ChunkedRejection is UnitTest
   """
   Send an HTTP/1.0 request to a handler that attempts chunked encoding
-  then falls back to respond_raw(). Verify that chunked is silently rejected
-  (HTTP/1.0 doesn't support it) and the fallback respond_raw() succeeds.
+  then falls back to respond(). Verify that chunked is silently rejected
+  (HTTP/1.0 doesn't support it) and the fallback respond() succeeds.
   """
   fun name(): String => "server/http 1.0 chunked rejection"
 
@@ -724,7 +724,7 @@ class \nodoc\ ref _TestPipelineHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Streaming test handler: sends chunked response
@@ -929,7 +929,7 @@ class \nodoc\ ref _TestPartialRespondHandler is Handler
         .finish_headers()
         .add_chunk(resp_body)
         .build()
-      responder.respond_raw(response)
+      responder.respond(response)
     end
     // Subsequent requests: intentionally never respond
 
@@ -986,7 +986,7 @@ actor \nodoc\ _TestMaxPendingClient is
     _h.complete(false)
 
 // ---------------------------------------------------------------------------
-// Chunked fallback handler: tries chunked encoding, falls back to respond_raw()
+// Chunked fallback handler: tries chunked encoding, falls back to respond()
 // ---------------------------------------------------------------------------
 
 class \nodoc\ val _TestChunkedFallbackFactory is HandlerFactory
@@ -1004,7 +1004,7 @@ class \nodoc\ ref _TestChunkedFallbackHandler is Handler
     responder.start_chunked_response(StatusOK, headers)
     responder.send_chunk("chunk1")
     responder.finish_response()
-    // Fallback: if chunked was rejected (HTTP/1.0), respond_raw() still works
+    // Fallback: if chunked was rejected (HTTP/1.0), respond() still works
     // since the state is still _ResponderNotResponded
     let fallback_body: String val = "fallback"
     let response = ResponseBuilder(StatusOK)
@@ -1013,7 +1013,7 @@ class \nodoc\ ref _TestChunkedFallbackHandler is Handler
       .finish_headers()
       .add_chunk(fallback_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // URI parsing integration tests
@@ -1065,7 +1065,7 @@ class \nodoc\ ref _TestURIParsingHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 class \nodoc\ iso _TestConnectURIParsing is UnitTest
   """
@@ -1118,7 +1118,7 @@ class \nodoc\ ref _TestConnectURIHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Request body buffering integration tests
@@ -1165,7 +1165,7 @@ class \nodoc\ ref _TestBufferedBodyHandler is Handler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 class \nodoc\ iso _TestBufferedNoBody is UnitTest
   """
@@ -1284,7 +1284,7 @@ class \nodoc\ ref _TestStreamingBodyHandler is StreamingHandler
       .finish_headers()
       .add_chunk(resp_body)
       .build()
-    responder.respond_raw(response)
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Pipelined bodies client: verifies each response has the correct body
