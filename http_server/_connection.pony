@@ -178,7 +178,7 @@ actor _Connection is
       return
     end
 
-    _handler.request(method, parsed_uri, version, headers)
+    _handler.request(Request(method, parsed_uri, version, headers))
 
   fun ref body_chunk(data: Array[U8] val) =>
     _handler.body_chunk(data)

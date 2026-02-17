@@ -1,5 +1,3 @@
-use "./uri"
-
 class ref _BufferingAdapter is StreamingHandler
   """
   Adapts a buffered `Handler` to the `StreamingHandler` interface.
@@ -19,13 +17,8 @@ class ref _BufferingAdapter is StreamingHandler
   new create(inner: Handler) =>
     _inner = inner
 
-  fun ref request(
-    method: Method,
-    uri: URI val,
-    version: Version,
-    headers: Headers val)
-  =>
-    _inner.request(method, uri, version, headers)
+  fun ref request(request': Request val) =>
+    _inner.request(request')
 
   fun ref body_chunk(data: Array[U8] val) =>
     _has_body = true
