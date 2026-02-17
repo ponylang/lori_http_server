@@ -8,6 +8,7 @@ the handler factory and shared across all requests via `Responder.respond_raw()`
 This is useful for high-throughput endpoints serving static or semi-static
 content where per-request serialization overhead matters.
 """
+// In user code with corral, this would be: use http_server = "http_server"
 use http_server = "../../http_server"
 use lori = "lori"
 
