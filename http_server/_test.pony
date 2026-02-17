@@ -30,6 +30,13 @@ actor \nodoc\ Main is TestList
       _PropertyResponseWireFormat))
     test(_TestResponseSerializerKnownGood)
 
+    // Response builder tests
+    test(Property1UnitTest[_ResponseInput](
+      _PropertyBuilderMatchesSerializer))
+    test(_TestResponseBuilderKnownGood)
+    test(_TestRespond)
+    test(_TestRespondIgnoredAfterFirst)
+
     // Parser property-based tests
     test(Property1UnitTest[(String val, String val)](
       _PropertyValidRequestLineParsesCorrectly))

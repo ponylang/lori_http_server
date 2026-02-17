@@ -312,12 +312,14 @@ class \nodoc\ val _TestHelloFactory is HandlerFactory
 
 class \nodoc\ ref _TestHelloHandler is Handler
   fun ref request_complete(responder: Responder, body: RequestBody) =>
-    let headers = recover val
-      let h = Headers
-      h.set("content-type", "text/plain")
-      h
-    end
-    responder.respond(StatusOK, headers, "Hello, World!")
+    let resp_body: String val = "Hello, World!"
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Test listener: creates _Connection actors, starts test client
@@ -708,17 +710,21 @@ class \nodoc\ ref _TestPipelineHandler is Handler
     if _responders.size() == 3 then
       // Respond in reverse order (2, 1, 0)
       // Queue ensures delivery in registration order (0, 1, 2)
-      let headers = recover val
-        let h = Headers
-        h.set("content-type", "text/plain")
-        h
-      end
       try
-        _responders(2)?.respond(StatusOK, headers, "response-2")
-        _responders(1)?.respond(StatusOK, headers, "response-1")
-        _responders(0)?.respond(StatusOK, headers, "response-0")
+        _respond(_responders(2)?, "response-2")
+        _respond(_responders(1)?, "response-1")
+        _respond(_responders(0)?, "response-0")
       end
     end
+
+  fun ref _respond(responder: Responder, resp_body: String val) =>
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Streaming test handler: sends chunked response
@@ -916,12 +922,14 @@ class \nodoc\ ref _TestPartialRespondHandler is Handler
   fun ref request_complete(responder: Responder, body: RequestBody) =>
     _count = _count + 1
     if _count == 1 then
-      let headers = recover val
-        let h = Headers
-        h.set("content-type", "text/plain")
-        h
-      end
-      responder.respond(StatusOK, headers, "first-ok")
+      let resp_body: String val = "first-ok"
+      let response = ResponseBuilder(StatusOK)
+        .add_header("content-type", "text/plain")
+        .add_header("Content-Length", resp_body.size().string())
+        .finish_headers()
+        .add_chunk(resp_body)
+        .build()
+      responder.respond(response)
     end
     // Subsequent requests: intentionally never respond
 
@@ -998,7 +1006,14 @@ class \nodoc\ ref _TestChunkedFallbackHandler is Handler
     responder.finish_response()
     // Fallback: if chunked was rejected (HTTP/1.0), respond() still works
     // since the state is still _ResponderNotResponded
-    responder.respond(StatusOK, headers, "fallback")
+    let fallback_body: String val = "fallback"
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", fallback_body.size().string())
+      .finish_headers()
+      .add_chunk(fallback_body)
+      .build()
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // URI parsing integration tests
@@ -1044,12 +1059,13 @@ class \nodoc\ ref _TestURIParsingHandler is Handler
 
   fun ref request_complete(responder: Responder, body: RequestBody) =>
     let resp_body: String val = _uri_path + "|" + _uri_query
-    let headers = recover val
-      let h = Headers
-      h.set("content-type", "text/plain")
-      h
-    end
-    responder.respond(StatusOK, headers, resp_body)
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 class \nodoc\ iso _TestConnectURIParsing is UnitTest
   """
@@ -1096,12 +1112,13 @@ class \nodoc\ ref _TestConnectURIHandler is Handler
 
   fun ref request_complete(responder: Responder, body: RequestBody) =>
     let resp_body: String val = _host + "|" + _port + "|" + _path
-    let headers = recover val
-      let h = Headers
-      h.set("content-type", "text/plain")
-      h
-    end
-    responder.respond(StatusOK, headers, resp_body)
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Request body buffering integration tests
@@ -1142,12 +1159,13 @@ class \nodoc\ ref _TestBufferedBodyHandler is Handler
     | let b: Array[U8] val => String.from_array(b)
     | None => "no body"
     end
-    let headers = recover val
-      let h = Headers
-      h.set("content-type", "text/plain")
-      h
-    end
-    responder.respond(StatusOK, headers, resp_body)
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 class \nodoc\ iso _TestBufferedNoBody is UnitTest
   """
@@ -1260,12 +1278,13 @@ class \nodoc\ ref _TestStreamingBodyHandler is StreamingHandler
     let body: Array[U8] val =
       (_body = recover iso Array[U8] end)
     let resp_body: String val = String.from_array(body)
-    let headers = recover val
-      let h = Headers
-      h.set("content-type", "text/plain")
-      h
-    end
-    responder.respond(StatusOK, headers, resp_body)
+    let response = ResponseBuilder(StatusOK)
+      .add_header("content-type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond(response)
 
 // ---------------------------------------------------------------------------
 // Pipelined bodies client: verifies each response has the correct body
