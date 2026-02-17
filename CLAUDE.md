@@ -38,7 +38,11 @@ Connections close when the client sends `Connection: close`, on HTTP/1.0 request
 
 **URI parsing in the connection layer**: The connection layer parses the raw request-target string into a `URI val` (from the `http_server/uri` subpackage) before delivering it to the handler. For CONNECT requests, `ParseURIAuthority` parses the authority-form target; for all other methods, `ParseURI` handles origin-form, absolute-form, and asterisk-form targets. Invalid URIs are rejected with 400 Bad Request before reaching the handler. Handlers that override `request()` need `use "http_server/uri"` in their package to name the `URI` type.
 
-**Per-request Responder and response queue**: Each request gets its own `Responder` instance, delivered via `Handler.request_complete(responder)`. The `HandlerFactory` no longer passes a `Responder` — it creates a bare handler. Responders send data through a `_ResponseQueue` that ensures pipelined responses are delivered in request order, regardless of the order handlers respond. The queue calls back to the connection via `_ResponseQueueNotify` for TCP I/O — it never holds the TCP connection directly. Responders support two modes: simple (`respond()` with full body) and streaming (`start_chunked_response()` + `send_chunk()` + `finish_response()` using chunked transfer encoding). After connection close, any Responders the handler still holds become inert — their methods route to the closed queue, which no-ops everything.
+**Two handler traits — buffered and streaming**: `Handler` (buffered) delivers the complete request body as a single `Array[U8] val` in `request_complete(responder, body)`. `StreamingHandler` delivers body data incrementally via `body_chunk(data)` and calls `request_complete(responder)` with no body parameter. Most handlers should use `Handler`; use `StreamingHandler` for large uploads, proxying, or incremental processing.
+
+`Server` and `_Connection` accept `AnyHandlerFactory`. Internally, `_Connection` always works with `StreamingHandler`. When a `HandlerFactory` is provided, the connection wraps the `Handler` in `_BufferingAdapter`, which accumulates body chunks and delivers the complete body at `request_complete`. The adapter resets its buffer between pipelined requests.
+
+**Per-request Responder and response queue**: Each request gets its own `Responder` instance, delivered via `Handler.request_complete()` or `StreamingHandler.request_complete()`. The factory creates a bare handler. Responders send data through a `_ResponseQueue` that ensures pipelined responses are delivered in request order, regardless of the order handlers respond. The queue calls back to the connection via `_ResponseQueueNotify` for TCP I/O — it never holds the TCP connection directly. Responders support two modes: simple (`respond()` with full body) and streaming (`start_chunked_response()` + `send_chunk()` + `finish_response()` using chunked transfer encoding). After connection close, any Responders the handler still holds become inert — their methods route to the closed queue, which no-ops everything.
 
 ### Implementation plan
 
@@ -62,7 +66,8 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `_request_parser_notify.pony` — Parser callback trait (synchronous `ref` methods)
   - `_parser_state.pony` — Parser state machine (state interface, 6 state classes, `_BufferScan`)
   - `_request_parser.pony` — Request parser class (entry point, buffer management)
-  - `handler.pony` — Application handler trait (`Handler`, receives `URI val`) and factory interface (`HandlerFactory`)
+  - `handler.pony` — Application handler traits (`Handler` buffered, `StreamingHandler` streaming, receives `URI val`) and factory interfaces (`HandlerFactory`, `StreamingHandlerFactory`)
+  - `_buffering_adapter.pony` — Adapts `Handler` to `StreamingHandler` by buffering body chunks (`_BufferingAdapter`)
   - `responder.pony` — Per-request response sender (`Responder` class, state machine, simple and streaming modes)
   - `_response_queue.pony` — Pipelined response ordering (`_ResponseQueue`, `_ResponseQueueNotify`, `_QueueEntry`)
   - `_chunked_encoder.pony` — Chunked transfer encoding (`_ChunkedEncoder` primitive)
@@ -70,8 +75,8 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `server_notify.pony` — Server lifecycle notifications (`ServerNotify` interface)
   - `_error_response.pony` — Pre-built error response strings (`_ErrorResponse` primitive)
   - `_connection_state.pony` — Connection lifecycle states (`_Active`, `_Closed`)
-  - `_connection.pony` — Per-connection actor (`_Connection`, owns TCP + parser + URI parsing + handler + response queue + idle timer)
-  - `server.pony` — Listener actor (`Server`, accepts connections, creates `_Connection` actors)
+  - `_connection.pony` — Per-connection actor (`_Connection`, owns TCP + parser + URI parsing + handler + response queue + idle timer, accepts `AnyHandlerFactory`)
+  - `server.pony` — Listener actor (`Server`, accepts connections, creates `_Connection` actors, accepts `AnyHandlerFactory`)
   - `uri/` — URI parsing subpackage (RFC 3986)
     - `uri.pony` — Package docstring and `URI` class (`query_params()` convenience method)
     - `uri_authority.pony` — `URIAuthority` class

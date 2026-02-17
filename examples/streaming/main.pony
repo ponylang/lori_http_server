@@ -1,9 +1,13 @@
 """
 HTTP server that streams responses using chunked transfer encoding.
 
-Demonstrates the streaming API: `start_chunked_response()`, `send_chunk()`,
-and `finish_response()`. Each request receives three chunks before the
-response is finalized.
+Demonstrates the streaming response API: `start_chunked_response()`,
+`send_chunk()`, and `finish_response()`. Each request receives three
+chunks before the response is finalized.
+
+Note: this demonstrates streaming *responses*, not streaming request
+bodies. It uses the buffered `Handler` trait since it doesn't need
+incremental request body access.
 """
 use http_server = "../../http_server"
 use lori = "lori"
@@ -31,7 +35,10 @@ class val _StreamFactory is http_server.HandlerFactory
 class ref _StreamHandler is http_server.Handler
   var _request_count: USize = 0
 
-  fun ref request_complete(responder: http_server.Responder) =>
+  fun ref request_complete(
+    responder: http_server.Responder,
+    body: http_server.RequestBody)
+  =>
     _request_count = _request_count + 1
     let headers = recover val
       let h = http_server.Headers

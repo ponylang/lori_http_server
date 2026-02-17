@@ -109,3 +109,10 @@ actor \nodoc\ Main is TestList
     // URI parsing integration tests
     test(_TestURIParsing)
     test(_TestConnectURIParsing)
+
+    // Request body buffering integration tests
+    test(_TestBufferedBody)
+    test(_TestBufferedNoBody)
+    test(_TestBufferedContentLengthZero)
+    test(_TestBufferedPipelinedBodies)
+    test(_TestStreamingBody)

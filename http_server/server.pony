@@ -6,9 +6,10 @@ actor Server is lori.TCPListenerActor
   HTTP server that listens for connections and dispatches requests to
   application handlers.
 
-  Each accepted connection creates a new `Handler` via the provided
-  `HandlerFactory`. Handlers run synchronously inside the connection
-  actor — no extra actor hops for the common case.
+  Each accepted connection creates a new handler via the provided factory.
+  Pass a `HandlerFactory` for buffered request bodies (common case) or a
+  `StreamingHandlerFactory` for incremental body delivery. Handlers run
+  synchronously inside the connection actor — no extra actor hops.
 
   ```pony
   use "http_server"
@@ -22,7 +23,7 @@ actor Server is lori.TCPListenerActor
   ```
   """
   var _tcp_listener: lori.TCPListener = lori.TCPListener.none()
-  let _handler_factory: HandlerFactory
+  let _handler_factory: AnyHandlerFactory
   let _server_auth: lori.TCPServerAuth
   let _config: ServerConfig
   let _notify: (ServerNotify | None)
@@ -30,16 +31,18 @@ actor Server is lori.TCPListenerActor
 
   new create(
     auth: lori.TCPListenAuth,
-    handler_factory: HandlerFactory,
+    handler_factory: AnyHandlerFactory,
     config: ServerConfig,
     notify: (ServerNotify | None) = None)
   =>
     """
     Start an HTTP server listening on the configured host and port.
 
-    The `handler_factory` creates a new `Handler` for each accepted
-    connection. It must be `val` (immutable and shareable). The optional
-    `notify` receives lifecycle callbacks (listening, listen failure).
+    The `handler_factory` creates a new handler for each accepted
+    connection. Pass a `HandlerFactory` for buffered request bodies or a
+    `StreamingHandlerFactory` for incremental body delivery. The factory
+    must be `val` (immutable and shareable). The optional `notify` receives
+    lifecycle callbacks (listening, listen failure).
     """
     _handler_factory = handler_factory
     _config = config

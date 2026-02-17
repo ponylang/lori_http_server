@@ -5,6 +5,10 @@ Demonstrates the core API: `Server`, `HandlerFactory`, `Handler`,
 `Responder`, `ServerConfig`, and `ServerNotify`. Also demonstrates
 query parameter extraction from the pre-parsed URI: a `?name=X`
 parameter customizes the greeting.
+
+Uses the buffered `Handler` trait, where the complete request body
+is delivered in `request_complete`. For most use cases (JSON APIs,
+form submissions), this is the appropriate handler.
 """
 use http_server = "../../http_server"
 use uri = "../../http_server/uri"
@@ -49,13 +53,16 @@ class ref _HelloHandler is http_server.Handler
       end
     end
 
-  fun ref request_complete(responder: http_server.Responder) =>
+  fun ref request_complete(
+    responder: http_server.Responder,
+    body: http_server.RequestBody)
+  =>
     _request_count = _request_count + 1
-    let body: String val =
+    let resp_body: String val =
       "Hello, " + _name + "! (request " + _request_count.string() + ")"
     let headers = recover val
       let h = http_server.Headers
       h.set("content-type", "text/plain")
       h
     end
-    responder.respond(http_server.StatusOK, headers, body)
+    responder.respond(http_server.StatusOK, headers, resp_body)

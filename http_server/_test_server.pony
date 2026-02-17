@@ -293,7 +293,7 @@ class \nodoc\ val _TestHelloFactory is HandlerFactory
     _TestHelloHandler
 
 class \nodoc\ ref _TestHelloHandler is Handler
-  fun ref request_complete(responder: Responder) =>
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
     let headers = recover val
       let h = Headers
       h.set("content-type", "text/plain")
@@ -308,7 +308,7 @@ class \nodoc\ ref _TestHelloHandler is Handler
 actor \nodoc\ _TestServerListener is lori.TCPListenerActor
   var _tcp_listener: lori.TCPListener = lori.TCPListener.none()
   let _server_auth: lori.TCPServerAuth
-  let _handler_factory: HandlerFactory
+  let _handler_factory: AnyHandlerFactory
   let _config: ServerConfig
   let _timers: (Timers | None)
   let _h: TestHelper
@@ -318,7 +318,7 @@ actor \nodoc\ _TestServerListener is lori.TCPListenerActor
   new create(
     h: TestHelper,
     port: String,
-    handler_factory: HandlerFactory,
+    handler_factory: AnyHandlerFactory,
     config: ServerConfig,
     start_client: {(TestHelper, String)} val,
     timers: (Timers | None) = None)
@@ -679,7 +679,7 @@ class \nodoc\ ref _TestPipelineHandler is Handler
   new ref create() =>
     _responders = Array[Responder]
 
-  fun ref request_complete(responder: Responder) =>
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
     _responders.push(responder)
     if _responders.size() == 3 then
       // Respond in reverse order (2, 1, 0)
@@ -705,7 +705,7 @@ class \nodoc\ val _TestStreamFactory is HandlerFactory
     _TestStreamHandler
 
 class \nodoc\ ref _TestStreamHandler is Handler
-  fun ref request_complete(responder: Responder) =>
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
     let headers = recover val
       let h = Headers
       h.set("content-type", "text/plain")
@@ -889,7 +889,7 @@ class \nodoc\ val _TestPartialRespondFactory is HandlerFactory
 class \nodoc\ ref _TestPartialRespondHandler is Handler
   var _count: USize = 0
 
-  fun ref request_complete(responder: Responder) =>
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
     _count = _count + 1
     if _count == 1 then
       let headers = recover val
@@ -962,7 +962,7 @@ class \nodoc\ val _TestChunkedFallbackFactory is HandlerFactory
     _TestChunkedFallbackHandler
 
 class \nodoc\ ref _TestChunkedFallbackHandler is Handler
-  fun ref request_complete(responder: Responder) =>
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
     let headers = recover val
       let h = Headers
       h.set("content-type", "text/plain")
@@ -1023,14 +1023,14 @@ class \nodoc\ ref _TestURIParsingHandler is Handler
     | None => ""
     end
 
-  fun ref request_complete(responder: Responder) =>
-    let body: String val = _uri_path + "|" + _uri_query
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
+    let resp_body: String val = _uri_path + "|" + _uri_query
     let headers = recover val
       let h = Headers
       h.set("content-type", "text/plain")
       h
     end
-    responder.respond(StatusOK, headers, body)
+    responder.respond(StatusOK, headers, resp_body)
 
 class \nodoc\ iso _TestConnectURIParsing is UnitTest
   """
@@ -1080,11 +1080,241 @@ class \nodoc\ ref _TestConnectURIHandler is Handler
       end
     end
 
-  fun ref request_complete(responder: Responder) =>
-    let body: String val = _host + "|" + _port + "|" + _path
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
+    let resp_body: String val = _host + "|" + _port + "|" + _path
     let headers = recover val
       let h = Headers
       h.set("content-type", "text/plain")
       h
     end
-    responder.respond(StatusOK, headers, body)
+    responder.respond(StatusOK, headers, resp_body)
+
+// ---------------------------------------------------------------------------
+// Request body buffering integration tests
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestBufferedBody is UnitTest
+  """
+  Send a POST with a body. Handler uses buffered `Handler` trait — the
+  complete body arrives as a single `Array[U8] val` in `request_complete`.
+  Handler echoes the body in the response to verify.
+  """
+  fun name(): String => "server/buffered body"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45889"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestBufferedBodyFactory, config,
+      {(h': TestHelper, port': String) =>
+        let request: String val =
+          "POST / HTTP/1.1\r\nHost: localhost\r\n" +
+          "Content-Length: 13\r\n\r\nHello, Body!\n"
+        let client = _TestHTTPClient(h', port', request, "200 OK",
+          "Hello, Body!\n")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ val _TestBufferedBodyFactory is HandlerFactory
+  fun apply(): Handler ref^ =>
+    _TestBufferedBodyHandler
+
+class \nodoc\ ref _TestBufferedBodyHandler is Handler
+  fun ref request_complete(responder: Responder, body: RequestBody) =>
+    let resp_body: String val = match body
+    | let b: Array[U8] val => String.from_array(b)
+    | None => "no body"
+    end
+    let headers = recover val
+      let h = Headers
+      h.set("content-type", "text/plain")
+      h
+    end
+    responder.respond(StatusOK, headers, resp_body)
+
+class \nodoc\ iso _TestBufferedNoBody is UnitTest
+  """
+  Send a GET (no body). Handler uses buffered `Handler` trait — verify
+  that `body` is `None` in `request_complete`.
+  """
+  fun name(): String => "server/buffered no body"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45891"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestBufferedBodyFactory, config,
+      {(h': TestHelper, port': String) =>
+        let request = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        let client = _TestHTTPClient(h', port', request, "200 OK",
+          "no body")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ iso _TestBufferedContentLengthZero is UnitTest
+  """
+  Send a POST with Content-Length: 0. Handler uses buffered `Handler`
+  trait — verify that `body` is `None` (not an empty array).
+  """
+  fun name(): String => "server/buffered content-length zero"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45892"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestBufferedBodyFactory, config,
+      {(h': TestHelper, port': String) =>
+        let request: String val =
+          "POST / HTTP/1.1\r\nHost: localhost\r\n" +
+          "Content-Length: 0\r\n\r\n"
+        let client = _TestHTTPClient(h', port', request, "200 OK",
+          "no body")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ iso _TestBufferedPipelinedBodies is UnitTest
+  """
+  Send two pipelined POSTs with different bodies through the buffered
+  `Handler`. Verify each request gets its own complete body — the adapter
+  resets its buffer between requests.
+  """
+  fun name(): String => "server/buffered pipelined bodies"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45893"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestBufferedBodyFactory, config,
+      {(h': TestHelper, port': String) =>
+        let request: String val =
+          "POST /1 HTTP/1.1\r\nHost: localhost\r\n" +
+          "Content-Length: 5\r\n\r\nfirst" +
+          "POST /2 HTTP/1.1\r\nHost: localhost\r\n" +
+          "Content-Length: 6\r\nConnection: close\r\n\r\nsecond"
+        let client = _TestPipelinedBodiesClient(h', port', request)
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ iso _TestStreamingBody is UnitTest
+  """
+  Send a POST with a body. Handler uses `StreamingHandler` trait — body
+  data arrives via `body_chunk`. Handler echoes the body in the response
+  to verify the `StreamingHandlerFactory` path through `_Connection`.
+  """
+  fun name(): String => "server/streaming body"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45890"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestStreamingBodyFactory, config,
+      {(h': TestHelper, port': String) =>
+        let request: String val =
+          "POST / HTTP/1.1\r\nHost: localhost\r\n" +
+          "Content-Length: 13\r\n\r\nHello, Body!\n"
+        let client = _TestHTTPClient(h', port', request, "200 OK",
+          "Hello, Body!\n")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ val _TestStreamingBodyFactory is StreamingHandlerFactory
+  fun apply(): StreamingHandler ref^ =>
+    _TestStreamingBodyHandler
+
+class \nodoc\ ref _TestStreamingBodyHandler is StreamingHandler
+  var _body: Array[U8] iso = recover iso Array[U8] end
+
+  fun ref body_chunk(data: Array[U8] val) =>
+    _body.append(data)
+
+  fun ref request_complete(responder: Responder) =>
+    let body: Array[U8] val =
+      (_body = recover iso Array[U8] end)
+    let resp_body: String val = String.from_array(body)
+    let headers = recover val
+      let h = Headers
+      h.set("content-type", "text/plain")
+      h
+    end
+    responder.respond(StatusOK, headers, resp_body)
+
+// ---------------------------------------------------------------------------
+// Pipelined bodies client: verifies each response has the correct body
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestPipelinedBodiesClient is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  let _request: String val
+  var _response: String ref = String
+  var _got_first: Bool = false
+  var _got_second: Bool = false
+
+  new create(h: TestHelper, port: String, request: String val) =>
+    _h = h
+    _request = request
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.client(
+      lori.TCPConnectAuth(_h.env.root), host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _tcp_connection.send(_request)
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    let r: String val = _response.clone()
+    if (not _got_first) and r.contains("first") then
+      _got_first = true
+    end
+    if (not _got_second) and r.contains("second") then
+      _got_second = true
+    end
+
+  fun ref _on_closed() =>
+    if _got_first and _got_second then
+      // Verify "first" appears before "second" (correct ordering)
+      let r: String val = _response.clone()
+      try
+        let pos_first = r.find("first")?
+        let pos_second = r.find("second")?
+        if pos_first < pos_second then
+          _h.complete(true)
+        else
+          _h.fail("Bodies arrived out of order")
+          _h.complete(false)
+        end
+      else
+        _h.fail("Could not find both bodies in response")
+        _h.complete(false)
+      end
+    elseif not _got_first then
+      _h.fail("Never received first body")
+      _h.complete(false)
+    else
+      _h.fail("Never received second body")
+      _h.complete(false)
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("Client connection failed")
+    _h.complete(false)
