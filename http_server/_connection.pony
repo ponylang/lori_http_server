@@ -34,6 +34,11 @@ actor _Connection is
   `_on_received`, is fed to the parser, and parser callbacks are
   forwarded to the handler synchronously.
 
+  Internally always works with `StreamingHandler`. When a `HandlerFactory`
+  is provided, the buffered `Handler` is wrapped in `_BufferingAdapter`
+  which accumulates body chunks and delivers the complete body at
+  `request_complete`.
+
   Pipelined requests are supported: multiple requests can be in-flight
   on a single connection. The response queue ensures responses are sent
   in request order, regardless of the order handlers respond.
@@ -45,7 +50,7 @@ actor _Connection is
   """
   var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
   var _state: _ConnectionState = _Active
-  let _handler: Handler
+  let _handler: StreamingHandler
   var _queue: (_ResponseQueue | None) = None
   var _current_responder: (Responder | None) = None
   var _requests_pending: USize = 0
@@ -58,13 +63,16 @@ actor _Connection is
   new create(
     auth: lori.TCPServerAuth,
     fd: U32,
-    handler_factory: HandlerFactory,
+    handler_factory: AnyHandlerFactory,
     config: ServerConfig,
     timers: (Timers | None) = None)
   =>
     _config = config
     _timers = timers
-    _handler = handler_factory()
+    _handler = match handler_factory
+    | let f: HandlerFactory => _BufferingAdapter(f())
+    | let f: StreamingHandlerFactory => f()
+    end
     // All let fields now initialized + all var fields have defaults,
     // so `this` is ref — required by _ResponseQueue, TCPConnection.server,
     // and _RequestParser constructors.

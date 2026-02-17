@@ -9,7 +9,8 @@ class ref Responder
   """
   Sends an HTTP response for a single request.
 
-  Each request receives its own `Responder` via `Handler.request_complete()`.
+  Each request receives its own `Responder` via `Handler.request_complete()`
+  or `StreamingHandler.request_complete()`.
   The Responder buffers response data through the connection's response queue,
   which ensures pipelined responses are sent in request order.
 
