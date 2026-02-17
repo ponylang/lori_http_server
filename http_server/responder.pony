@@ -14,7 +14,7 @@ class ref Responder
   The Responder buffers response data through the connection's response queue,
   which ensures pipelined responses are sent in request order.
 
-  Two response modes are available:
+  Three response modes are available:
 
   **Simple response** — call `respond()` once with the full body:
   ```pony
@@ -28,6 +28,12 @@ class ref Responder
   responder.send_chunk("chunk 1")
   responder.send_chunk("chunk 2")
   responder.finish_response()
+  ```
+
+  **Raw response** — send pre-serialized bytes built with
+  `ResponseBuilder`, bypassing serialization:
+  ```pony
+  responder.respond_raw(cached_response)
   ```
 
   Responders are created internally by the connection actor. Application
@@ -78,6 +84,27 @@ class ref Responder
       let h: Headers val = _auto_content_length(headers, body)
       let response = _ResponseSerializer(status, h, body, _version)
       _queue.send_data(_id, consume response)
+      _queue.finish(_id)
+    end
+
+  fun ref respond_raw(raw: ByteSeq) =>
+    """
+    Send a pre-serialized HTTP response, bypassing internal serialization.
+
+    The `raw` bytes must be a complete HTTP response: status line, headers,
+    blank line separator, and optional body. No headers are injected and no
+    validation is performed — the caller is fully responsible for correct
+    HTTP formatting. Use `ResponseBuilder` to construct well-formed raw
+    responses.
+
+    Only valid when no response has been started. Subsequent calls are
+    silently ignored (both after `respond_raw()` and after any other
+    response method).
+    """
+    match _state
+    | _ResponderNotResponded =>
+      _state = _ResponderComplete
+      _queue.send_data(_id, raw)
       _queue.finish(_id)
     end
 

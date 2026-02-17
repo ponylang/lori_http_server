@@ -51,8 +51,9 @@ trait ref Handler
     `max_body_size` in `ServerConfig` (default 1MB).
 
     The `responder` is specific to this request. Call `Responder.respond()`
-    to send a complete response, or use `start_chunked_response()`,
-    `send_chunk()`, and `finish_response()` for streaming responses. The
+    to send a complete response, use `start_chunked_response()`,
+    `send_chunk()`, and `finish_response()` for streaming responses, or
+    use `respond_raw()` with pre-built bytes from `ResponseBuilder`. The
     handler may hold the responder and respond later (e.g., for deferred
     processing).
     """
@@ -145,8 +146,9 @@ trait ref StreamingHandler
     Called when the entire request (including any body) has been received.
 
     The `responder` is specific to this request. Call `Responder.respond()`
-    to send a complete response, or use `start_chunked_response()`,
-    `send_chunk()`, and `finish_response()` for streaming responses. The
+    to send a complete response, use `start_chunked_response()`,
+    `send_chunk()`, and `finish_response()` for streaming responses, or
+    use `respond_raw()` with pre-built bytes from `ResponseBuilder`. The
     handler may hold the responder and respond later (e.g., for deferred
     processing).
     """
