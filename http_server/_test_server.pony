@@ -1,7 +1,9 @@
+use "files"
 use "pony_check"
 use "pony_test"
 use "time"
 use lori = "lori"
+use ssl_net = "ssl/net"
 use uri = "./uri"
 
 // ---------------------------------------------------------------------------
@@ -1339,4 +1341,459 @@ actor \nodoc\ _TestPipelinedBodiesClient is
 
   fun ref _on_connection_failure() =>
     _h.fail("Client connection failed")
+    _h.complete(false)
+
+// ---------------------------------------------------------------------------
+// SSL integration tests
+// ---------------------------------------------------------------------------
+
+primitive \nodoc\ _TestSSLContext
+  """
+  Create an SSLContext val from the test certificates in assets/.
+
+  Used by both server and client: SSLContext is val, so server() and client()
+  create independent SSL sessions from the shared context.
+  """
+  fun apply(auth: AmbientAuth): ssl_net.SSLContext val ? =>
+    let file_auth = FileAuth(auth)
+    recover val
+      ssl_net.SSLContext
+        .> set_authority(
+          FilePath(file_auth, "assets/cert.pem"))?
+        .> set_cert(
+          FilePath(file_auth, "assets/cert.pem"),
+          FilePath(file_auth, "assets/key.pem"))?
+        .> set_client_verify(false)
+        .> set_server_verify(false)
+    end
+
+class \nodoc\ val _TestSSLListenNotify is ServerNotify
+  """
+  ServerNotify that launches a test client once the server is listening.
+  On listen failure, fails the test immediately.
+  """
+  let _h: TestHelper
+  let _start_client: {(TestHelper)} val
+
+  new val create(h: TestHelper, start_client: {(TestHelper)} val) =>
+    _h = h
+    _start_client = start_client
+
+  fun listening(server: Server tag) =>
+    _start_client(_h)
+
+  fun listen_failure(server: Server tag) =>
+    _h.fail("SSL server failed to start listening")
+    _h.complete(false)
+
+// ---------------------------------------------------------------------------
+// SSL test: basic hello world over HTTPS
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestSSLHelloWorld is UnitTest
+  """
+  Start a Server with SSL, connect an SSL client, send a GET request,
+  verify the handler responds with 200 OK and "Hello, World!" body.
+  Exercises the full SSL path: handshake -> request -> handler -> response.
+  """
+  fun name(): String => "server/ssl hello world"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let sslctx =
+      try _TestSSLContext(h.env.root)?
+      else
+        h.fail("Unable to set up SSL context")
+        h.complete(false)
+        return
+      end
+    let port = "45900"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let notify = _TestSSLListenNotify(h,
+      {(h': TestHelper) =>
+        let request = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        let client = _TestSSLHTTPClient(h', sslctx, port, request, "200 OK",
+          "Hello, World!")
+        h'.dispose_when_done(client)
+      })
+    let server = Server(lori.TCPListenAuth(h.env.root), _TestHelloFactory,
+      config, notify where ssl_ctx = sslctx)
+    h.dispose_when_done(server)
+
+// ---------------------------------------------------------------------------
+// SSL test: keep-alive (two requests on same SSL connection)
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestSSLKeepAlive is UnitTest
+  """
+  Send two HTTP/1.1 requests on the same SSL connection. Verify both get
+  200 OK responses (SSL connection stays open between requests).
+  """
+  fun name(): String => "server/ssl keep-alive"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let sslctx =
+      try _TestSSLContext(h.env.root)?
+      else
+        h.fail("Unable to set up SSL context")
+        h.complete(false)
+        return
+      end
+    let port = "45901"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let notify = _TestSSLListenNotify(h,
+      {(h': TestHelper) =>
+        let client = _TestSSLKeepAliveClient(h', sslctx, port)
+        h'.dispose_when_done(client)
+      })
+    let server = Server(lori.TCPListenAuth(h.env.root), _TestHelloFactory,
+      config, notify where ssl_ctx = sslctx)
+    h.dispose_when_done(server)
+
+// ---------------------------------------------------------------------------
+// SSL test: connection close
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestSSLConnectionClose is UnitTest
+  """
+  Send an HTTP/1.1 request with Connection: close over SSL. Verify the
+  response arrives and the connection closes.
+  """
+  fun name(): String => "server/ssl connection close"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let sslctx =
+      try _TestSSLContext(h.env.root)?
+      else
+        h.fail("Unable to set up SSL context")
+        h.complete(false)
+        return
+      end
+    let port = "45902"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let notify = _TestSSLListenNotify(h,
+      {(h': TestHelper) =>
+        let request =
+          "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        let client = _TestSSLHTTPClientExpectClose(h', sslctx, port, request,
+          "200 OK")
+        h'.dispose_when_done(client)
+      })
+    let server = Server(lori.TCPListenAuth(h.env.root), _TestHelloFactory,
+      config, notify where ssl_ctx = sslctx)
+    h.dispose_when_done(server)
+
+// ---------------------------------------------------------------------------
+// SSL test: parse error (garbage bytes over SSL)
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestSSLParseError is UnitTest
+  """
+  Send garbage bytes over an SSL connection. Verify the server responds
+  with 400 Bad Request over the encrypted connection.
+  """
+  fun name(): String => "server/ssl parse error"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let sslctx =
+      try _TestSSLContext(h.env.root)?
+      else
+        h.fail("Unable to set up SSL context")
+        h.complete(false)
+        return
+      end
+    let port = "45903"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let notify = _TestSSLListenNotify(h,
+      {(h': TestHelper) =>
+        let client = _TestSSLHTTPClient(h', sslctx, port,
+          "GARBAGE DATA\r\n\r\n", "400 Bad Request", None)
+        h'.dispose_when_done(client)
+      })
+    let server = Server(lori.TCPListenAuth(h.env.root), _TestHelloFactory,
+      config, notify where ssl_ctx = sslctx)
+    h.dispose_when_done(server)
+
+// ---------------------------------------------------------------------------
+// SSL test: chunked streaming response
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestSSLStreamingResponse is UnitTest
+  """
+  Handler uses chunked transfer encoding to stream a response over SSL.
+  Client verifies the response has Transfer-Encoding: chunked and contains
+  all chunks.
+  """
+  fun name(): String => "server/ssl streaming response"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let sslctx =
+      try _TestSSLContext(h.env.root)?
+      else
+        h.fail("Unable to set up SSL context")
+        h.complete(false)
+        return
+      end
+    let port = "45904"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let notify = _TestSSLListenNotify(h,
+      {(h': TestHelper) =>
+        let client = _TestSSLStreamClient(h', sslctx, port)
+        h'.dispose_when_done(client)
+      })
+    let server = Server(lori.TCPListenAuth(h.env.root), _TestStreamFactory,
+      config, notify where ssl_ctx = sslctx)
+    h.dispose_when_done(server)
+
+// ---------------------------------------------------------------------------
+// SSL test client: sends request, verifies response
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestSSLHTTPClient is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  let _request: String val
+  let _expected_status: String val
+  let _expected_body: (String val | None)
+  var _response: String ref = String
+
+  new create(
+    h: TestHelper,
+    ssl_ctx: ssl_net.SSLContext val,
+    port: String,
+    request: String val,
+    expected_status: String val,
+    expected_body: (String val | None))
+  =>
+    _h = h
+    _request = request
+    _expected_status = expected_status
+    _expected_body = expected_body
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.ssl_client(
+      lori.TCPConnectAuth(_h.env.root), ssl_ctx, host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _tcp_connection.send(_request)
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    if _response.contains("\r\n\r\n") then
+      _verify_response()
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("SSL client connection failed")
+    _h.complete(false)
+
+  fun ref _verify_response() =>
+    let response: String val = _response.clone()
+
+    if not response.contains(_expected_status) then
+      _h.fail("Expected status '" + _expected_status
+        + "' not found in response:\n" + response)
+      _h.complete(false)
+      return
+    end
+
+    match _expected_body
+    | let body: String val =>
+      if not response.contains(body) then
+        _h.fail("Expected body '" + body
+          + "' not found in response:\n" + response)
+        _h.complete(false)
+        return
+      end
+    end
+
+    _h.complete(true)
+
+// ---------------------------------------------------------------------------
+// SSL test client: sends request, verifies response AND connection close
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestSSLHTTPClientExpectClose is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  let _request: String val
+  let _expected_status: String val
+  var _response: String ref = String
+  var _response_ok: Bool = false
+
+  new create(
+    h: TestHelper,
+    ssl_ctx: ssl_net.SSLContext val,
+    port: String,
+    request: String val,
+    expected_status: String val)
+  =>
+    _h = h
+    _request = request
+    _expected_status = expected_status
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.ssl_client(
+      lori.TCPConnectAuth(_h.env.root), ssl_ctx, host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _tcp_connection.send(_request)
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    if _response.contains("\r\n\r\n") then
+      let response: String val = _response.clone()
+      if response.contains(_expected_status) then
+        _response_ok = true
+      else
+        _h.fail("Expected status '" + _expected_status
+          + "' not found in response:\n" + response)
+        _h.complete(false)
+      end
+    end
+
+  fun ref _on_closed() =>
+    if _response_ok then
+      _h.complete(true)
+    else
+      let response: String val = _response.clone()
+      if response.contains(_expected_status) then
+        _h.complete(true)
+      else
+        _h.fail("Connection closed before valid response received")
+        _h.complete(false)
+      end
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("SSL client connection failed")
+    _h.complete(false)
+
+// ---------------------------------------------------------------------------
+// SSL test client: sends two requests on same connection (keep-alive)
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestSSLKeepAliveClient is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  var _response: String ref = String
+  var _requests_sent: USize = 0
+
+  new create(
+    h: TestHelper,
+    ssl_ctx: ssl_net.SSLContext val,
+    port: String)
+  =>
+    _h = h
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.ssl_client(
+      lori.TCPConnectAuth(_h.env.root), ssl_ctx, host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _requests_sent = 1
+    _tcp_connection.send(
+      "GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    let r: String val = _response.clone()
+
+    if _requests_sent == 1 then
+      try
+        r.find("Hello, World!")?
+        _requests_sent = 2
+        _tcp_connection.send(
+          "GET /2 HTTP/1.1\r\nHost: localhost\r\n\r\n")
+      end
+    elseif _requests_sent == 2 then
+      try
+        r.find("Hello, World!", 0, 1)?
+        _h.complete(true)
+      end
+    end
+
+  fun ref _on_closed() =>
+    if _requests_sent < 2 then
+      _h.fail("Connection closed before both requests completed")
+      _h.complete(false)
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("SSL client connection failed")
+    _h.complete(false)
+
+// ---------------------------------------------------------------------------
+// SSL test client: sends request, verifies chunked response
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestSSLStreamClient is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  var _response: String ref = String
+
+  new create(
+    h: TestHelper,
+    ssl_ctx: ssl_net.SSLContext val,
+    port: String)
+  =>
+    _h = h
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.ssl_client(
+      lori.TCPConnectAuth(_h.env.root), ssl_ctx, host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _tcp_connection.send(
+      "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    let r: String val = _response.clone()
+    if r.contains("0\r\n\r\n") then
+      if not (r.contains("Transfer-Encoding: chunked")
+        or r.contains("transfer-encoding: chunked"))
+      then
+        _h.fail(
+          "Missing Transfer-Encoding: chunked header in:\n" + r)
+        _h.complete(false)
+        return
+      end
+      if not (r.contains("chunk1") and r.contains("chunk2")
+        and r.contains("chunk3"))
+      then
+        _h.fail("Missing chunk data in:\n" + r)
+        _h.complete(false)
+        return
+      end
+      _h.complete(true)
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("SSL client connection failed")
     _h.complete(false)

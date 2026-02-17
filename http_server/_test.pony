@@ -117,3 +117,10 @@ actor \nodoc\ Main is TestList
     test(_TestBufferedContentLengthZero)
     test(_TestBufferedPipelinedBodies)
     test(_TestStreamingBody)
+
+    // SSL integration tests
+    test(_TestSSLHelloWorld)
+    test(_TestSSLKeepAlive)
+    test(_TestSSLConnectionClose)
+    test(_TestSSLParseError)
+    test(_TestSSLStreamingResponse)
