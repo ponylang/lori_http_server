@@ -1,22 +1,25 @@
 """
-HTTP server using ResponseBuilder to pre-build and cache responses.
+HTTP server using ResponseBuilder to construct responses dynamically.
 
-Demonstrates `ResponseBuilder` for constructing pre-serialized responses
-that bypass serialization on each request. The response is built once in
-the handler factory and shared across all requests via `Responder.respond_raw()`.
+Demonstrates `ResponseBuilder` as an alternative to `Responder.respond()`
+for building and sending HTTP responses. The builder constructs the
+response as a single byte array via a typed state machine that guides
+the caller through status, headers, then body.
 
-This is useful for high-throughput endpoints serving static or semi-static
-content where per-request serialization overhead matters.
+The builder is useful when you want explicit control over response
+construction without the `recover val` ceremony that `Responder.respond()`
+requires for headers.
 """
 // In user code with corral, this would be: use http_server = "http_server"
 use http_server = "../../http_server"
+use uri = "../../http_server/uri"
 use lori = "lori"
 
 actor Main
   new create(env: Env) =>
     let auth = lori.TCPListenAuth(env.root)
     let config = http_server.ServerConfig("localhost", "8080")
-    http_server.Server(auth, _CachedFactory, config, _ServerNotify(env))
+    http_server.Server(auth, _HelloFactory, config, _ServerNotify(env))
 
 class val _ServerNotify is http_server.ServerNotify
   let _env: Env
@@ -31,44 +34,31 @@ class val _ServerNotify is http_server.ServerNotify
   fun closed(server: http_server.Server tag) =>
     _env.out.print("Server closed")
 
-class val _CachedFactory is http_server.HandlerFactory
-  """
-  Pre-builds a response once and shares it with every handler instance.
-
-  Because `HandlerFactory` is `val`, the builder (`ref`) must be used inside
-  a `recover val` block. The resulting `Array[U8] val` is immutable and
-  safely shareable across connection actors.
-  """
-  let _response: Array[U8] val
-
-  new val create() =>
-    let body: String val = "Hello from the builder!"
-    _response = recover val
-      http_server.ResponseBuilder(http_server.StatusOK)
-        .add_header("Content-Type", "text/plain")
-        .add_header("Content-Length", body.size().string())
-        .finish_headers()
-        .add_chunk(body)
-        .build()
-    end
-
+class val _HelloFactory is http_server.HandlerFactory
   fun apply(): http_server.Handler ref^ =>
-    _CachedHandler(_response)
+    _HelloHandler
 
-class ref _CachedHandler is http_server.Handler
-  """
-  Handler that sends a pre-built cached response for every request.
+class ref _HelloHandler is http_server.Handler
+  var _name: String val = "World"
 
-  No per-request serialization — just pushes the cached bytes through
-  the response queue.
-  """
-  let _response: Array[U8] val
-
-  new create(response: Array[U8] val) =>
-    _response = response
+  fun ref request(r: http_server.Request val) =>
+    _name = "World"
+    match r.uri.query_params()
+    | let params: uri.QueryParams val =>
+      match params.get("name")
+      | let name: String => _name = name
+      end
+    end
 
   fun ref request_complete(
     responder: http_server.Responder,
     body: http_server.RequestBody)
   =>
-    responder.respond_raw(_response)
+    let resp_body: String val = "Hello, " + _name + "!"
+    let response = http_server.ResponseBuilder(http_server.StatusOK)
+      .add_header("Content-Type", "text/plain")
+      .add_header("Content-Length", resp_body.size().string())
+      .finish_headers()
+      .add_chunk(resp_body)
+      .build()
+    responder.respond_raw(response)
