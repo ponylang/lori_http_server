@@ -1035,14 +1035,9 @@ class \nodoc\ ref _TestURIParsingHandler is Handler
   var _uri_path: String val = ""
   var _uri_query: String val = ""
 
-  fun ref request(
-    method: Method,
-    request_uri: uri.URI val,
-    version: Version,
-    headers: Headers val)
-  =>
-    _uri_path = request_uri.path
-    _uri_query = match request_uri.query
+  fun ref request(r: Request val) =>
+    _uri_path = r.uri.path
+    _uri_query = match r.uri.query
     | let q: String val => q
     | None => ""
     end
@@ -1088,14 +1083,9 @@ class \nodoc\ ref _TestConnectURIHandler is Handler
   var _port: String val = ""
   var _path: String val = ""
 
-  fun ref request(
-    method: Method,
-    request_uri: uri.URI val,
-    version: Version,
-    headers: Headers val)
-  =>
-    _path = request_uri.path
-    match request_uri.authority
+  fun ref request(r: Request val) =>
+    _path = r.uri.path
+    match r.uri.authority
     | let a: uri.URIAuthority val =>
       _host = a.host
       _port = match a.port

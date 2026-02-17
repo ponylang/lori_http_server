@@ -2,7 +2,7 @@
 Basic HTTP server that responds to every request with "Hello, World!".
 
 Demonstrates the core API: `Server`, `HandlerFactory`, `Handler`,
-`Responder`, `ServerConfig`, and `ServerNotify`. Also demonstrates
+`Request`, `Responder`, `ServerConfig`, and `ServerNotify`. Also demonstrates
 query parameter extraction from the pre-parsed URI: a `?name=X`
 parameter customizes the greeting.
 
@@ -41,15 +41,10 @@ class ref _HelloHandler is http_server.Handler
   var _request_count: USize = 0
   var _name: String val = "World"
 
-  fun ref request(
-    method: http_server.Method,
-    request_uri: uri.URI val,
-    version: http_server.Version,
-    headers: http_server.Headers val)
-  =>
+  fun ref request(r: http_server.Request val) =>
     // Extract a "name" query parameter if present
     _name = "World"
-    match request_uri.query_params()
+    match r.uri.query_params()
     | let params: uri.QueryParams val =>
       match params.get("name")
       | let name: String => _name = name

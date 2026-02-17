@@ -44,9 +44,9 @@ SSL handshake, encryption, and decryption are handled transparently by lori — 
 
 Connections close when the client sends `Connection: close`, on HTTP/1.0 requests without `Connection: keep-alive`, after a parse error (with the appropriate error status code), or when the idle timeout expires. Backpressure from lori is propagated to the handler via `throttled()`/`unthrottled()` callbacks and to the response queue via `throttle()`/`unthrottle()`.
 
-**URI parsing in the connection layer**: The connection layer parses the raw request-target string into a `URI val` (from the `http_server/uri` subpackage) before delivering it to the handler. For CONNECT requests, `ParseURIAuthority` parses the authority-form target; for all other methods, `ParseURI` handles origin-form, absolute-form, and asterisk-form targets. Invalid URIs are rejected with 400 Bad Request before reaching the handler. Handlers that override `request()` need `use "http_server/uri"` in their package to name the `URI` type.
+**URI parsing in the connection layer**: The connection layer parses the raw request-target string into a `URI val` (from the `http_server/uri` subpackage) before delivering it to the handler as part of the `Request val` object. For CONNECT requests, `ParseURIAuthority` parses the authority-form target; for all other methods, `ParseURI` handles origin-form, absolute-form, and asterisk-form targets. Invalid URIs are rejected with 400 Bad Request before reaching the handler. Handlers that access URI components (e.g., `request'.uri.query_params()`) need `use "http_server/uri"` in their package to name types like `QueryParams`.
 
-**Two handler traits — buffered and streaming**: `Handler` (buffered) delivers the complete request body as a single `Array[U8] val` in `request_complete(responder, body)`. `StreamingHandler` delivers body data incrementally via `body_chunk(data)` and calls `request_complete(responder)` with no body parameter. Most handlers should use `Handler`; use `StreamingHandler` for large uploads, proxying, or incremental processing.
+**Two handler traits — buffered and streaming**: Both traits receive a `Request val` in their `request()` callback, bundling method, URI, version, and headers into a single immutable value. `Handler` (buffered) delivers the complete request body as a single `Array[U8] val` in `request_complete(responder, body)`. `StreamingHandler` delivers body data incrementally via `body_chunk(data)` and calls `request_complete(responder)` with no body parameter. Most handlers should use `Handler`; use `StreamingHandler` for large uploads, proxying, or incremental processing.
 
 `Server` and `_Connection` accept `AnyHandlerFactory`. Internally, `_Connection` always works with `StreamingHandler`. When a `HandlerFactory` is provided, the connection wraps the `Handler` in `_BufferingAdapter`, which accumulates body chunks and delivers the complete body at `request_complete`. The adapter resets its buffer between pipelined requests.
 
@@ -74,7 +74,8 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `_request_parser_notify.pony` — Parser callback trait (synchronous `ref` methods)
   - `_parser_state.pony` — Parser state machine (state interface, 6 state classes, `_BufferScan`)
   - `_request_parser.pony` — Request parser class (entry point, buffer management)
-  - `handler.pony` — Application handler traits (`Handler` buffered, `StreamingHandler` streaming, receives `URI val`) and factory interfaces (`HandlerFactory`, `StreamingHandlerFactory`)
+  - `request.pony` — Immutable request metadata bundle (`Request val`: method, URI, version, headers)
+  - `handler.pony` — Application handler traits (`Handler` buffered, `StreamingHandler` streaming, receives `Request val`) and factory interfaces (`HandlerFactory`, `StreamingHandlerFactory`)
   - `_buffering_adapter.pony` — Adapts `Handler` to `StreamingHandler` by buffering body chunks (`_BufferingAdapter`)
   - `responder.pony` — Per-request response sender (`Responder` class, state machine, simple and streaming modes)
   - `_response_queue.pony` — Pipelined response ordering (`_ResponseQueue`, `_ResponseQueueNotify`, `_QueueEntry`)
