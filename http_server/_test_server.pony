@@ -4,7 +4,7 @@ use "pony_test"
 use "time"
 use lori = "lori"
 use ssl_net = "ssl/net"
-use uri = "./uri"
+use uri = "uri"
 
 // ---------------------------------------------------------------------------
 // Existing tests (updated for new _Connection constructor)

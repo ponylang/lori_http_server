@@ -8,7 +8,7 @@ Send the built response via `Responder.respond()`.
 """
 // In user code with corral, this would be: use http_server = "http_server"
 use http_server = "../../http_server"
-use uri = "../../http_server/uri"
+use uri = "uri"
 use lori = "lori"
 
 actor Main

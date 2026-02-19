@@ -1,4 +1,4 @@
-use "./uri"
+use "uri"
 
 class val Request
   """

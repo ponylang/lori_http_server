@@ -1,7 +1,6 @@
 {
   "packages": [
-    "http_server",
-    "http_server/uri"
+    "http_server"
   ],
   "info": {
     "description": "HTTP server for Pony",
@@ -14,11 +13,15 @@
   "deps": [
     {
       "locator": "github.com/ponylang/lori.git",
-      "version": "0.8.1"
+      "version": "0.8.3"
     },
     {
       "locator": "github.com/ponylang/ssl.git",
       "version": "2.0.0"
+    },
+    {
+      "locator": "github.com/ponylang/uri.git",
+      "version": "0.1.0"
     }
   ]
 }
