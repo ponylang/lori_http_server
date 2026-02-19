@@ -96,7 +96,7 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `request.pony` — Immutable request metadata bundle (`Request val`: method, URI, version, headers)
   - `http_server_lifecycle_event_receiver.pony` — HTTP callback trait (`HTTPServerLifecycleEventReceiver`: request, body_chunk, request_complete, closed, throttled, unthrottled)
   - `http_server_actor.pony` — Server actor trait (`HTTPServerActor`: extends `TCPConnectionActor` and `HTTPServerLifecycleEventReceiver`, provides `_connection()` and `_idle_timeout()` defaults)
-  - `http_server_protocol.pony` — Protocol class (`HTTPServer`: owns TCP connection + parser + URI parsing + response queue + idle timer, implements `ServerLifecycleEventReceiver` + `_RequestParserNotify` + `_ResponseQueueNotify`; also contains `_NullReceiver`, `_KeepAliveDecision`, and `_IdleTimerNotify`)
+  - `http_server_protocol.pony` — Protocol class (`HTTPServer`: owns TCP connection + parser + URI parsing + response queue + idle timer, implements `ServerLifecycleEventReceiver` + `_RequestParserNotify` + `_ResponseQueueNotify`; also contains `_KeepAliveDecision` and `_IdleTimerNotify`)
   - `response_builder.pony` — Pre-serialized response construction (`ResponseBuilder` primitive, `ResponseBuilderHeaders`/`ResponseBuilderBody` phase interfaces, `_ResponseBuilderImpl`)
   - `responder.pony` — Per-request response sender (`Responder` class, state machine, complete and streaming modes)
   - `_response_queue.pony` — Pipelined response ordering (`_ResponseQueue`, `_ResponseQueueNotify`, `_QueueEntry`)
@@ -111,4 +111,4 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `hello/main.pony` — Greeting server with URI parsing and query parameter extraction
   - `builder/main.pony` — Dynamic response construction using `ResponseBuilder` and `respond()`
   - `ssl/main.pony` — HTTPS server using SSL/TLS
-  - `streaming/main.pony` — Chunked transfer encoding streaming response
+  - `streaming/main.pony` — Timer-driven chunked transfer encoding streaming response
