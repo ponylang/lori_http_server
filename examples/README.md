@@ -4,7 +4,7 @@ Each subdirectory is a self-contained Pony program demonstrating a different par
 
 ## [hello](hello/)
 
-Greeting server that responds with "Hello, World!" by default, or "Hello, {name}!" when a `?name=X` query parameter is provided. Tracks a per-connection request counter. Demonstrates the core API: a listener actor implements `lori.TCPListenerActor`, creates connection actors in `_on_accept`, and each connection actor uses `HTTPServerActor`, `HTTPServer`, `Request`, `Responder`, `ResponseBuilder`, and `ServerConfig`. Start here if you're new to the library.
+Greeting server that responds with "Hello, World!" by default, or "Hello, {name}!" when a `?name=X` query parameter is provided. Demonstrates the core API: a listener actor implements `lori.TCPListenerActor`, creates connection actors in `_on_accept`, and each connection actor uses `HTTPServerActor`, `HTTPServer`, `Request`, `Responder`, `ResponseBuilder`, and `ServerConfig`. Start here if you're new to the library.
 
 ## [builder](builder/)
 

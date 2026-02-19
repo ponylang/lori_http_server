@@ -53,7 +53,6 @@ actor Listener is lori.TCPListenerActor
 
 actor HelloServer is http_server.HTTPServerActor
   var _http: http_server.HTTPServer = http_server.HTTPServer.none()
-  var _request_count: USize = 0
   var _name: String val = "World"
 
   new create(
@@ -79,9 +78,7 @@ actor HelloServer is http_server.HTTPServerActor
     end
 
   fun ref request_complete(responder: http_server.Responder) =>
-    _request_count = _request_count + 1
-    let resp_body: String val =
-      "Hello, " + _name + "! (request " + _request_count.string() + ")"
+    let resp_body: String val = "Hello, " + _name + "!"
     let response = http_server.ResponseBuilder(http_server.StatusOK)
       .add_header("Content-Type", "text/plain")
       .add_header("Content-Length", resp_body.size().string())
