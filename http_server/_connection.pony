@@ -1,7 +1,7 @@
 use lori = "lori"
 use ssl_net = "ssl/net"
 use "time"
-use uri_pkg = "./uri"
+use uri_pkg = "uri"
 
 primitive _KeepAliveDecision
   """

@@ -11,7 +11,7 @@ is delivered in `request_complete`. For most use cases (JSON APIs,
 form submissions), this is the appropriate handler.
 """
 use http_server = "../../http_server"
-use uri = "../../http_server/uri"
+use uri = "uri"
 use lori = "lori"
 
 actor Main

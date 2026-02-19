@@ -15,7 +15,7 @@ The `ssl` option is required because this library and lori depend on the `ssl` p
 
 Package: `http_server` (repo name is `lori_http_server`, but the Pony package name is `http_server`)
 
-Built on lori (v0.8.1). Lori provides raw TCP I/O with a connection-actor model: `_on_received(data: Array[U8] iso)` for incoming data, `TCPConnection.send(data): (SendToken | SendError)` for outgoing, plus backpressure notifications and SSL support.
+Built on lori (v0.8.3). Lori provides raw TCP I/O with a connection-actor model: `_on_received(data: Array[U8] iso)` for incoming data, `TCPConnection.send(data): (SendToken | SendError)` for outgoing, plus backpressure notifications and SSL support.
 
 ### Key design decisions
 
@@ -44,7 +44,7 @@ SSL handshake, encryption, and decryption are handled transparently by lori — 
 
 Connections close when the client sends `Connection: close`, on HTTP/1.0 requests without `Connection: keep-alive`, after a parse error (with the appropriate error status code), or when the idle timeout expires. Backpressure from lori is propagated to the handler via `throttled()`/`unthrottled()` callbacks and to the response queue via `throttle()`/`unthrottle()`.
 
-**URI parsing in the connection layer**: The connection layer parses the raw request-target string into a `URI val` (from the `http_server/uri` subpackage) before delivering it to the handler as part of the `Request val` object. For CONNECT requests, `ParseURIAuthority` parses the authority-form target; for all other methods, `ParseURI` handles origin-form, absolute-form, and asterisk-form targets. Invalid URIs are rejected with 400 Bad Request before reaching the handler. Handlers that access URI components (e.g., `request'.uri.query_params()`) need `use "http_server/uri"` in their package to name types like `QueryParams`.
+**URI parsing in the connection layer**: The connection layer parses the raw request-target string into a `URI val` (from the `uri` package, `ponylang/uri`) before delivering it to the handler as part of the `Request val` object. For CONNECT requests, `ParseURIAuthority` parses the authority-form target; for all other methods, `ParseURI` handles origin-form, absolute-form, and asterisk-form targets. Invalid URIs are rejected with 400 Bad Request before reaching the handler. Handlers that access URI components (e.g., `request'.uri.query_params()`) need `use "uri"` in their package to name types like `QueryParams`.
 
 **Two handler traits — buffered and streaming**: Both traits receive a `Request val` in their `request()` callback, bundling method, URI, version, and headers into a single immutable value. `Handler` (buffered) delivers the complete request body as a single `Array[U8] val` in `request_complete(responder, body)`. `StreamingHandler` delivers body data incrementally via `body_chunk(data)` and calls `request_complete(responder)` with no body parameter. Most handlers should use `Handler`; use `StreamingHandler` for large uploads, proxying, or incremental processing.
 
@@ -89,17 +89,6 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `_connection_state.pony` — Connection lifecycle states (`_Active`, `_Closed`)
   - `_connection.pony` — Per-connection actor (`_Connection`, owns TCP/SSL + parser + URI parsing + handler + response queue + idle timer, accepts `AnyHandlerFactory`)
   - `server.pony` — Listener actor (`Server`, accepts connections, creates `_Connection` actors, accepts `AnyHandlerFactory`, optional SSL)
-  - `uri/` — URI parsing subpackage (RFC 3986)
-    - `uri.pony` — Package docstring and `URI` class (`query_params()` convenience method)
-    - `uri_authority.pony` — `URIAuthority` class
-    - `percent_encoding.pony` — `PercentDecode`, `PercentEncode`, `URIPart` types, `InvalidPercentEncoding`
-    - `parse_uri.pony` — `ParseURI` factory
-    - `parse_uri_authority.pony` — `ParseURIAuthority` factory
-    - `uri_parse_error.pony` — Error types and `URIParseError` union
-    - `query_params.pony` — `QueryParams` class (key-based lookup for parsed query parameters)
-    - `query_parameters.pony` — `ParseQueryParameters` primitive
-    - `path_segments.pony` — `PathSegments` primitive
-    - `_mort.pony` — `_Unreachable`, `_IllegalState` (package-private duplicate)
 - `assets/` — test assets
   - `cert.pem` — Self-signed test certificate for SSL examples
   - `key.pem` — Test private key for SSL examples
