@@ -3,6 +3,9 @@ use ssl_net = "ssl/net"
 use "time"
 use uri_pkg = "uri"
 
+class _NullReceiver is HTTPServerLifecycleEventReceiver
+  """Placeholder receiver for `HTTPServer.none()`."""
+
 primitive _KeepAliveDecision
   """
   Determine whether to keep a connection alive based on HTTP version
@@ -23,91 +26,105 @@ primitive _KeepAliveDecision
     // Default: HTTP/1.1 keeps alive, HTTP/1.0 does not
     version is HTTP11
 
-actor _Connection is
-  (lori.TCPConnectionActor & lori.ServerLifecycleEventReceiver
-    & _RequestParserNotify & _ResponseQueueNotify)
+class HTTPServer is
+  (lori.ServerLifecycleEventReceiver & _RequestParserNotify
+    & _ResponseQueueNotify)
   """
-  Per-connection actor that owns TCP I/O, parsing, handler dispatch,
-  response queue, and response sending.
+  HTTP protocol handler that manages parsing, response queuing, and
+  connection lifecycle for a single HTTP connection.
 
-  Implements the single-actor connection model: no actor boundaries
-  between the TCP layer and application handler. Data arrives via
-  `_on_received`, is fed to the parser, and parser callbacks are
-  forwarded to the handler synchronously.
+  Stored as a field inside an `HTTPServerActor`. Handles all HTTP-level
+  concerns — parsing incoming data, URI validation, response queue
+  management, idle timeout scheduling, and backpressure — and delivers
+  HTTP events to the actor via `HTTPServerLifecycleEventReceiver`
+  callbacks.
 
-  Internally always works with `StreamingHandler`. When a `HandlerFactory`
-  is provided, the buffered `Handler` is wrapped in `_BufferingAdapter`
-  which accumulates body chunks and delivers the complete body at
-  `request_complete`.
+  The protocol class implements lori's `ServerLifecycleEventReceiver`
+  to receive TCP-level events from the connection, processes them through
+  the HTTP parser, and forwards HTTP-level events to the owning actor.
 
-  Pipelined requests are supported: multiple requests can be in-flight
-  on a single connection. The response queue ensures responses are sent
-  in request order, regardless of the order handlers respond.
+  Use `none()` as the field default so that `this` is `ref` in the
+  actor constructor body, then replace with `create()`:
 
-  Connections are persistent by default (HTTP/1.1 keep-alive). The
-  connection closes when the client sends `Connection: close`, on
-  HTTP/1.0 requests without `Connection: keep-alive`, after a parse
-  error, or when the idle timeout expires.
+  ```pony
+  actor MyServer is HTTPServerActor
+    var _http: HTTPServer = HTTPServer.none()
+
+    new create(auth: lori.TCPServerAuth, fd: U32,
+      config: ServerConfig,
+      ssl_ctx: (ssl_net.SSLContext val | None),
+      timers: (Timers | None))
+    =>
+      _http = HTTPServer(auth, fd, ssl_ctx, this, config,
+        timers)
+  ```
   """
+  let _receiver: HTTPServerLifecycleEventReceiver ref
+  let _actor: (HTTPServerActor tag | None)
+  let _config: ServerConfig
+  let _timers: (Timers | None)
   var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
   var _state: _ConnectionState = _Active
-  let _handler: StreamingHandler
   var _queue: (_ResponseQueue | None) = None
   var _current_responder: (Responder | None) = None
   var _requests_pending: USize = 0
   var _parser: (_RequestParser | None) = None
-  let _config: ServerConfig
-  let _timers: (Timers | None)
   var _idle: Bool = true
   var _idle_timer: (Timer tag | None) = None
+
+  new none() =>
+    """
+    Create a placeholder protocol instance.
+
+    Used as the default value for the `_http` field in `HTTPServerActor`
+    implementations, allowing `this` to be `ref` in the actor constructor
+    body. The placeholder is immediately replaced by `create()` — its
+    methods must never be called.
+    """
+    _receiver = _NullReceiver
+    _actor = None
+    _config = ServerConfig("", "")
+    _timers = None
 
   new create(
     auth: lori.TCPServerAuth,
     fd: U32,
-    handler_factory: AnyHandlerFactory,
+    ssl_ctx: (ssl_net.SSLContext val | None),
+    server_actor: HTTPServerActor ref,
     config: ServerConfig,
-    timers: (Timers | None) = None)
+    timers: (Timers | None))
   =>
+    """
+    Create the protocol handler for a new connection.
+
+    Called inside the `HTTPServerActor` constructor. The `server_actor`
+    parameter must be the actor's `this` — it provides both the
+    `HTTPServerLifecycleEventReceiver ref` for synchronous callbacks and
+    the `HTTPServerActor tag` for idle timer notifications.
+    """
+    _receiver = server_actor
+    _actor = server_actor
     _config = config
     _timers = timers
-    _handler = match handler_factory
-    | let f: HandlerFactory => _BufferingAdapter(f())
-    | let f: StreamingHandlerFactory => f()
-    end
     // All let fields now initialized + all var fields have defaults,
     // so `this` is ref — required by _ResponseQueue, TCPConnection.server,
     // and _RequestParser constructors.
     _queue = _ResponseQueue(this)
-    _tcp_connection = lori.TCPConnection.server(auth, fd, this, this)
     _parser = _RequestParser(this, _config._parser_config())
-
-  new ssl_create(
-    auth: lori.TCPServerAuth,
-    ssl_ctx: ssl_net.SSLContext val,
-    fd: U32,
-    handler_factory: AnyHandlerFactory,
-    config: ServerConfig,
-    timers: (Timers | None) = None)
-  =>
-    _config = config
-    _timers = timers
-    _handler = match handler_factory
-    | let f: HandlerFactory => _BufferingAdapter(f())
-    | let f: StreamingHandlerFactory => f()
+    _tcp_connection = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      lori.TCPConnection.ssl_server(auth, ctx, fd, server_actor, this)
+    else
+      lori.TCPConnection.server(auth, fd, server_actor, this)
     end
-    // All let fields now initialized + all var fields have defaults,
-    // so `this` is ref — required by _ResponseQueue,
-    // TCPConnection.ssl_server, and _RequestParser constructors.
-    _queue = _ResponseQueue(this)
-    _tcp_connection = lori.TCPConnection.ssl_server(auth, ssl_ctx, fd, this, this)
-    _parser = _RequestParser(this, _config._parser_config())
-
-  //
-  // TCPConnectionActor / ServerLifecycleEventReceiver
-  //
 
   fun ref _connection(): lori.TCPConnection =>
+    """Return the underlying TCP connection."""
     _tcp_connection
+
+  //
+  // ServerLifecycleEventReceiver
+  //
 
   fun ref _on_started() =>
     _start_idle_timer()
@@ -120,8 +137,8 @@ actor _Connection is
     _state.on_closed(this)
 
   fun ref _on_start_failure() =>
-    // Connection failed before _on_started — handler was never activated.
-    // Don't call _handler.closed(); just mark as closed for GC.
+    // Connection failed before _on_started — receiver was never activated.
+    // Don't call _receiver.closed(); just mark as closed for GC.
     _state = _Closed
 
   fun ref _on_throttled() =>
@@ -131,7 +148,7 @@ actor _Connection is
     _state.on_unthrottled(this)
 
   //
-  // _RequestParserNotify — forwarding parser events to handler
+  // _RequestParserNotify — forwarding parser events to receiver
   //
 
   fun ref request_received(
@@ -178,16 +195,16 @@ actor _Connection is
       return
     end
 
-    _handler.request(Request(method, parsed_uri, version, headers))
+    _receiver.request(Request(method, parsed_uri, version, headers))
 
   fun ref body_chunk(data: Array[U8] val) =>
-    _handler.body_chunk(data)
+    _receiver.body_chunk(data)
 
   fun ref request_complete() =>
     match _current_responder
     | let r: Responder =>
       _current_responder = None
-      _handler.request_complete(r)
+      _receiver.request_complete(r)
     end
 
   fun ref parse_error(err: ParseError) =>
@@ -200,7 +217,7 @@ actor _Connection is
   //
   // _ResponseQueueNotify — called by the response queue during
   // send_data/finish/unthrottle to delegate TCP I/O and lifecycle
-  // decisions to this connection actor.
+  // decisions.
   //
 
   fun ref _flush_data(data: ByteSeq) =>
@@ -234,17 +251,7 @@ actor _Connection is
     end
 
   //
-  // Idle timeout
-  //
-
-  // Sent by _IdleTimerNotify when the idle timer fires. Arrives
-  // asynchronously — a new request may have started since the timer
-  // was scheduled.
-  be _idle_timeout() =>
-    _state.on_idle_timeout(this)
-
-  //
-  // Internal methods called by state classes
+  // Internal methods called by state classes and HTTPServerActor
   //
 
   fun ref _feed_parser(data: Array[U8] iso) =>
@@ -254,23 +261,23 @@ actor _Connection is
     end
 
   fun ref _handle_closed() =>
-    """Notify the handler that the connection has closed."""
+    """Notify the receiver that the connection has closed."""
     match _parser | let p: _RequestParser => p.stop() end
     match _queue | let q: _ResponseQueue => q.close() end
-    _handler.closed()
+    _receiver.closed()
     _state = _Closed
 
   fun ref _handle_throttled() =>
-    """Apply backpressure: mute the TCP connection and notify the handler."""
+    """Apply backpressure: mute the TCP connection and notify the receiver."""
     _tcp_connection.mute()
     match _queue | let q: _ResponseQueue => q.throttle() end
-    _handler.throttled()
+    _receiver.throttled()
 
   fun ref _handle_unthrottled() =>
-    """Release backpressure: unmute the TCP connection and notify the handler."""
+    """Release backpressure: unmute the TCP connection and notify the receiver."""
     _tcp_connection.unmute()
     match _queue | let q: _ResponseQueue => q.unthrottle() end
-    _handler.unthrottled()
+    _receiver.unthrottled()
 
   fun ref _handle_idle_timeout() =>
     """Close the connection if it is idle (between requests)."""
@@ -284,7 +291,7 @@ actor _Connection is
 
     Safe to call from within queue callbacks (e.g., `_response_complete`
     with `keep_alive=false`) — the `_Active` state guard prevents
-    double-close. After this, any Responders the handler still holds
+    double-close. After this, any Responders the actor still holds
     become inert: their methods call through to the queue, which is
     closed and no-ops everything.
     """
@@ -293,7 +300,7 @@ actor _Connection is
       match _parser | let p: _RequestParser => p.stop() end
       match _queue | let q: _ResponseQueue => q.close() end
       _cancel_idle_timer()
-      _handler.closed()
+      _receiver.closed()
       _tcp_connection.close()
       _state = _Closed
     end
@@ -304,10 +311,10 @@ actor _Connection is
 
   fun ref _start_idle_timer() =>
     if _config.idle_timeout == 0 then return end
-    match _timers
-    | let timers: Timers =>
+    match (_timers, _actor)
+    | (let timers: Timers, let a: HTTPServerActor tag) =>
       let timer = Timer(
-        _IdleTimerNotify(this),
+        _IdleTimerNotify(a),
         _config.idle_timeout * 1_000_000_000)
       let t: Timer tag = timer
       timers(consume timer)
@@ -322,14 +329,14 @@ actor _Connection is
     end
 
 class _IdleTimerNotify is TimerNotify
-  """Timer notify that sends an idle timeout message to a connection."""
-  let _connection: _Connection tag
+  """Timer notify that sends an idle timeout message to the server actor."""
+  let _server_actor: HTTPServerActor tag
 
-  new iso create(connection: _Connection tag) =>
-    _connection = connection
+  new iso create(server_actor: HTTPServerActor tag) =>
+    _server_actor = server_actor
 
   fun ref apply(timer: Timer, count: U64): Bool =>
-    _connection._idle_timeout()
+    _server_actor._idle_timeout()
     false // One-shot: don't reschedule
 
   fun ref cancel(timer: Timer) =>
