@@ -7,7 +7,8 @@ primitive DefaultIdleTimeout
     | let t: lori.IdleTimeout => t
     else
       // Unreachable: 60_000 > 0 always passes IdleTimeout validation.
-      _Unreachable(); None
+      _Unreachable()
+      None
     end
 
 class val ServerConfig
