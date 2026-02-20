@@ -3,8 +3,8 @@ HTTPS server that responds to every request with "Hello, World!".
 
 Demonstrates SSL/TLS support: creating an `SSLContext`, loading certificate
 and key files, and passing the context to connection actors via `_on_accept`.
-The `HTTPServer` handles SSL dispatch internally — actors are identical for
-HTTP and HTTPS.
+Actors use `HTTPServer.ssl` instead of `HTTPServer` to create an HTTPS
+connection.
 
 Must be run from the project root so the relative certificate paths resolve
 correctly. Test with `curl -k https://localhost:8443/`.
@@ -84,10 +84,10 @@ actor HelloServer is http_server.HTTPServerActor
     auth: lori.TCPServerAuth,
     fd: U32,
     config: http_server.ServerConfig,
-    ssl_ctx: (SSLContext val | None),
+    ssl_ctx: SSLContext val,
     timers: (Timers | None))
   =>
-    _http = http_server.HTTPServer(auth, fd, ssl_ctx, this,
+    _http = http_server.HTTPServer.ssl(auth, ssl_ctx, fd, this,
       config, timers)
 
   fun ref _http_connection(): http_server.HTTPServer => _http

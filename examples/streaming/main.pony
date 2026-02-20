@@ -15,7 +15,6 @@ example ignores request bodies.
 """
 use http_server = "../../http_server"
 use lori = "lori"
-use ssl_net = "ssl/net"
 use "time"
 
 actor Main
@@ -45,7 +44,7 @@ actor Listener is lori.TCPListenerActor
   fun ref _listener(): lori.TCPListener => _tcp_listener
 
   fun ref _on_accept(fd: U32): lori.TCPConnectionActor =>
-    StreamServer(_server_auth, fd, _config, None, _timers)
+    StreamServer(_server_auth, fd, _config, _timers)
 
   fun ref _on_listening() =>
     try
@@ -72,12 +71,10 @@ actor StreamServer is http_server.HTTPServerActor
     auth: lori.TCPServerAuth,
     fd: U32,
     config: http_server.ServerConfig,
-    ssl_ctx: (ssl_net.SSLContext val | None),
     timers: Timers)
   =>
     _timers = timers
-    _http = http_server.HTTPServer(auth, fd, ssl_ctx, this,
-      config, timers)
+    _http = http_server.HTTPServer(auth, fd, this, config, timers)
 
   fun ref _http_connection(): http_server.HTTPServer => _http
 

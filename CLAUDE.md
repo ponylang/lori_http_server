@@ -30,13 +30,13 @@ The user's actor stores `HTTPServer` as a field and implements `HTTPServerActor`
 
 **No HTTP-layer listener wrapper**: A separate listener actor implements `lori.TCPListenerActor` directly, creating `HTTPServerActor` instances in `_on_accept`. Lifecycle callbacks (`_on_listening`, `_on_listen_failure`, `_on_closed`) go directly to the listener actor. This mirrors lori's own echo server pattern — `Main` creates the listener, the listener creates connections. No factory class, no notify class, no hidden internal actor.
 
-**`none()` constructor for field defaults**: `HTTPServer.none()` creates a placeholder instance that allows the `_http` field to have a default value. This is needed because Pony actor constructors require all fields to be initialized before `this` becomes `ref`. Without a default, `this` is `tag` in the constructor body, which can't be passed to `HTTPServer.create()`. The `none()` instance is immediately replaced by `create()` — its methods are never called.
+**`none()` constructor for field defaults**: `HTTPServer.none()` creates a placeholder instance that allows the `_http` field to have a default value. This is needed because Pony actor constructors require all fields to be initialized before `this` becomes `ref`. Without a default, `this` is `tag` in the constructor body, which can't be passed to `HTTPServer.create()`. The `none()` instance is immediately replaced by `create()` or `ssl()` — its methods are never called.
 
-**Capability chain in the protocol constructor**: `HTTPServer.create` takes `server_actor: HTTPServerActor ref` (the user's `this`):
+**Capability chain in the protocol constructors**: Both `HTTPServer.create` (plain HTTP) and `HTTPServer.ssl` (HTTPS) take `server_actor: HTTPServerActor ref` (the user's `this`):
 - Stored as `_lifecycle_event_receiver: (HTTPServerLifecycleEventReceiver ref | None)` — for synchronous HTTP callbacks (upcast; `None` for the `none()` placeholder)
 - Stored as `_enclosing: (HTTPServerActor | None)` — for idle timer behavior (`ref <: tag`; `None` for the `none()` placeholder)
-- Passed to `TCPConnection.server(auth, fd, server_actor, this)` as `TCPConnectionActor ref` — lori ASIO wiring (upcast)
-- Protocol passes `this` to `TCPConnection.server()` as `ServerLifecycleEventReceiver ref`
+- `create` passes to `TCPConnection.server(auth, fd, server_actor, this)` as `TCPConnectionActor ref`; `ssl` passes to `TCPConnection.ssl_server(auth, ssl_ctx, fd, server_actor, this)`
+- Protocol passes `this` to `TCPConnection.server()`/`ssl_server()` as `ServerLifecycleEventReceiver ref`
 
 **Parser callback is `ref`, not `tag`**: The parser runs inside the connection actor, so its callback interface uses `fun ref` methods (synchronous calls), not `be` behaviors (actor messages). This avoids the extra actor hop that `ponylang/http_server` requires.
 
@@ -50,14 +50,14 @@ The user's actor stores `HTTPServer` as a field and implements `HTTPServerActor`
 let config = ServerConfig("localhost", "8080" where idle_timeout' = 60)
 ```
 
-For HTTPS, pass an `SSLContext val` (from `ssl/net`) to connection actors:
+For HTTPS, pass an `SSLContext val` (from `ssl/net`) to connection actors, which use `HTTPServer.ssl` instead of `HTTPServer`:
 
 ```pony
 fun ref _on_accept(fd: U32): lori.TCPConnectionActor =>
   MyServer(_server_auth, fd, _config, _ssl_ctx, _timers)
 ```
 
-SSL handshake, encryption, and decryption are handled transparently by lori — actors see no difference between HTTP and HTTPS connections. `HTTPServer.create` handles SSL dispatch internally (single constructor takes `(SSLContext val | None)`).
+SSL handshake, encryption, and decryption are handled transparently by lori. Actors explicitly choose `HTTPServer(auth, fd, this, config, timers)` for plain HTTP or `HTTPServer.ssl(auth, ssl_ctx, fd, this, config, timers)` for HTTPS.
 
 Connections close when the client sends `Connection: close`, on HTTP/1.0 requests without `Connection: keep-alive`, after a parse error (with the appropriate error status code), when the idle timeout expires, or when the actor calls `HTTPServer.close()`. The `close()` method is the public API for server-initiated connection close — use it after rejecting a request early (e.g., 413 response sent in `request()` before body arrives). Backpressure from lori is propagated to the actor via `throttled()`/`unthrottled()` callbacks and to the response queue via `throttle()`/`unthrottle()`.
 

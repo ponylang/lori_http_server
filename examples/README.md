@@ -12,7 +12,7 @@ Constructs responses dynamically using `ResponseBuilder`. Demonstrates the build
 
 ## [ssl](ssl/)
 
-HTTPS server using SSL/TLS. Demonstrates creating an `SSLContext`, loading certificate and key files, and passing the context to connection actors via `_on_accept`. The `HTTPServer` handles SSL dispatch internally — the actor code is identical for HTTP and HTTPS.
+HTTPS server using SSL/TLS. Demonstrates creating an `SSLContext`, loading certificate and key files, and passing the context to connection actors via `_on_accept`. Actors use `HTTPServer.ssl` instead of `HTTPServer` to create an HTTPS connection.
 
 ## [streaming](streaming/)
 
