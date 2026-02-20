@@ -7,6 +7,7 @@ class \nodoc\ ref _TestQueueNotify is _ResponseQueueNotify
   Test double that records all queue callback invocations for assertion.
   """
   embed flushed_data: Array[ByteSeq]
+  embed flushed_tokens: Array[(ChunkSendToken | None)]
   embed completions: Array[Bool]
   var close_on_complete: Bool = false
   var close_on_flush_data: Bool = false
@@ -19,10 +20,14 @@ class \nodoc\ ref _TestQueueNotify is _ResponseQueueNotify
 
   new ref create() =>
     flushed_data = Array[ByteSeq]
+    flushed_tokens = Array[(ChunkSendToken | None)]
     completions = Array[Bool]
 
-  fun ref _flush_data(data: ByteSeq) =>
+  fun ref _flush_data(data: ByteSeq,
+    token: (ChunkSendToken | None) = None)
+  =>
     flushed_data.push(data)
+    flushed_tokens.push(token)
     if close_on_flush_data then
       let s: String val = match data
       | let sv: String val => sv
@@ -401,6 +406,241 @@ class \nodoc\ iso _TestQueueCloseOnFlushData is UnitTest
 
     // Entry 0's completion should have fired before the cascade
     h.assert_eq[USize](1, notify.completions.size())
+
+// ---------------------------------------------------------------------------
+// Token threading tests
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _TestQueueTokenImmediateFlush is UnitTest
+  """
+  Head entry: send data with a token, verify the token appears in the
+  _flush_data callback immediately.
+  """
+  fun name(): String => "response-queue/token immediate flush"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    let id = queue.register(true)
+    let token = queue.create_chunk_token()
+    queue.send_data(id, "chunk-data", token)
+
+    h.assert_eq[USize](1, notify.flushed_tokens.size())
+    try
+      match notify.flushed_tokens(0)?
+      | let ct: ChunkSendToken =>
+        h.assert_true(ct == token, "Token should match")
+      else
+        h.fail("Expected ChunkSendToken, got None")
+      end
+    else
+      h.fail("Token index out of bounds")
+    end
+
+class \nodoc\ iso _TestQueueTokenBufferedFlush is UnitTest
+  """
+  Non-head entry: send data with a token, finish head, verify the token
+  appears in the deferred flush.
+  """
+  fun name(): String => "response-queue/token buffered flush"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    let id0 = queue.register(true)
+    let id1 = queue.register(true)
+
+    // Send data with token to non-head entry (buffers)
+    let token = queue.create_chunk_token()
+    queue.send_data(id1, "e1-data", token)
+
+    // Nothing should have flushed for entry 1 yet
+    h.assert_eq[USize](0, notify.flushed_tokens.size())
+
+    // Finish head entry to trigger cascade
+    queue.send_data(id0, "e0-data")
+    queue.finish(id0)
+    queue.finish(id1)
+
+    // Verify both data items flushed: e0-data (None token), e1-data (token)
+    h.assert_eq[USize](2, notify.flushed_tokens.size())
+    try
+      match notify.flushed_tokens(0)?
+      | let _: ChunkSendToken => h.fail("Head entry should have None token")
+      | None => None  // expected
+      end
+      match notify.flushed_tokens(1)?
+      | let ct: ChunkSendToken =>
+        h.assert_true(ct == token, "Buffered token should match")
+      else
+        h.fail("Expected ChunkSendToken for entry 1, got None")
+      end
+    else
+      h.fail("Token index out of bounds")
+    end
+
+class \nodoc\ iso _TestQueueTokenNoneForInternalSends is UnitTest
+  """
+  Mix of token and None sends. Verify each _flush_data gets the correct
+  token value.
+  """
+  fun name(): String => "response-queue/token none for internal sends"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    let id = queue.register(true)
+    let token = queue.create_chunk_token()
+
+    // Internal send (headers — no token)
+    queue.send_data(id, "headers")
+    // User chunk (with token)
+    queue.send_data(id, "chunk", token)
+    // Internal send (terminal chunk — no token)
+    queue.send_data(id, "0\r\n\r\n")
+    queue.finish(id)
+
+    h.assert_eq[USize](3, notify.flushed_tokens.size())
+    try
+      match notify.flushed_tokens(0)?
+      | let _: ChunkSendToken =>
+        h.fail("Headers should have None token")
+      end
+      match notify.flushed_tokens(1)?
+      | let ct: ChunkSendToken =>
+        h.assert_true(ct == token, "Chunk token should match")
+      else
+        h.fail("Chunk should have ChunkSendToken")
+      end
+      match notify.flushed_tokens(2)?
+      | let _: ChunkSendToken =>
+        h.fail("Terminal chunk should have None token")
+      end
+    else
+      h.fail("Token index out of bounds")
+    end
+
+class \nodoc\ iso _TestQueueTokenThrottle is UnitTest
+  """
+  Throttle, send with token, unthrottle. Verify token survives buffering.
+  """
+  fun name(): String => "response-queue/token throttle"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    let id = queue.register(true)
+    let token = queue.create_chunk_token()
+
+    queue.throttle()
+    queue.send_data(id, "throttled-chunk", token)
+
+    // Nothing flushed yet
+    h.assert_eq[USize](0, notify.flushed_tokens.size())
+
+    queue.unthrottle()
+
+    h.assert_eq[USize](1, notify.flushed_tokens.size())
+    try
+      match notify.flushed_tokens(0)?
+      | let ct: ChunkSendToken =>
+        h.assert_true(ct == token, "Token should survive throttle")
+      else
+        h.fail("Expected ChunkSendToken after unthrottle")
+      end
+    else
+      h.fail("Token index out of bounds")
+    end
+
+class \nodoc\ iso _TestQueueTokenClose is UnitTest
+  """
+  Throttle, send with token, close, unthrottle. Verify no flush occurs.
+  """
+  fun name(): String => "response-queue/token close"
+
+  fun apply(h: TestHelper) =>
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    let id = queue.register(true)
+    let token = queue.create_chunk_token()
+
+    queue.throttle()
+    queue.send_data(id, "will-be-lost", token)
+    queue.close()
+    queue.unthrottle()
+
+    // Nothing should have flushed — queue was closed
+    h.assert_eq[USize](0, notify.flushed_tokens.size())
+    h.assert_eq[USize](0, notify.flushed_data.size())
+
+// ---------------------------------------------------------------------------
+// Property-based test: token ordering
+// ---------------------------------------------------------------------------
+
+class \nodoc\ iso _PropertyQueueTokenOrder
+  is Property1[Array[USize] val]
+  """
+  Register N entries, each with 1 None send (simulated headers) + 1 token
+  send (simulated chunk) + 1 None send (simulated terminal). Finish in
+  random permutation order. Verify all tokens flush in registration order.
+  """
+  fun name(): String => "response-queue/token order"
+
+  fun gen(): Generator[Array[USize] val] =>
+    Generators.usize(2, 15).flat_map[Array[USize] val](
+      {(n: USize): Generator[Array[USize] val] =>
+        _PermutationGenerator(n)
+      })
+
+  fun ref property(arg1: Array[USize] val, ph: PropertyHelper) =>
+    let n = arg1.size()
+    let notify = _TestQueueNotify
+    let queue = _ResponseQueue(notify)
+
+    // Register N entries, each with headers + chunk (token) + terminal
+    let ids = Array[U64](n)
+    let tokens = Array[ChunkSendToken](n)
+    for i in Range(0, n) do
+      let id = queue.register(true)
+      ids.push(id)
+      // Headers (no token)
+      queue.send_data(id, "headers-" + i.string())
+      // User chunk (with token)
+      let token = queue.create_chunk_token()
+      tokens.push(token)
+      queue.send_data(id, "chunk-" + i.string(), token)
+      // Terminal chunk (no token)
+      queue.send_data(id, "terminal-" + i.string())
+    end
+
+    // Finish in permutation order
+    for i in arg1.values() do
+      try queue.finish(ids(i)?) end
+    end
+
+    // Extract only the ChunkSendTokens from the flushed tokens
+    let flushed_chunk_tokens = Array[ChunkSendToken](n)
+    for ft in notify.flushed_tokens.values() do
+      match ft
+      | let ct: ChunkSendToken => flushed_chunk_tokens.push(ct)
+      end
+    end
+
+    ph.assert_eq[USize](n, flushed_chunk_tokens.size(),
+      "Expected " + n.string() + " chunk tokens")
+
+    // Verify tokens appear in registration order
+    for i in Range(0, n) do
+      try
+        ph.assert_true(tokens(i)? == flushed_chunk_tokens(i)?,
+          "Token order mismatch at position " + i.string())
+      end
+    end
 
 // ---------------------------------------------------------------------------
 // Permutation generator for property tests

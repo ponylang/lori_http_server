@@ -33,10 +33,14 @@ class ref Responder
   incrementally-generated bodies:
   ```pony
   responder.start_chunked_response(StatusOK, headers)
-  responder.send_chunk("chunk 1")
-  responder.send_chunk("chunk 2")
+  let token1 = responder.send_chunk("chunk 1")
+  let token2 = responder.send_chunk("chunk 2")
   responder.finish_response()
   ```
+
+  Each `send_chunk()` returns a `ChunkSendToken` (or `None` if the call
+  was a no-op). A matching `chunk_sent(token)` callback fires when the
+  OS accepts the data, enabling flow-controlled streaming.
 
   Responders are created internally by `HTTPServer`. Application
   code should not attempt to construct them directly.
@@ -112,12 +116,17 @@ class ref Responder
       _queue.send_data(_id, consume response)
     end
 
-  fun ref send_chunk(data: ByteSeq) =>
+  fun ref send_chunk(data: ByteSeq): (ChunkSendToken | None) =>
     """
     Send a chunk of response body data.
 
     The data is wrapped in chunked transfer encoding format. Empty data is
     silently ignored — use `finish_response()` to send the terminal chunk.
+
+    Returns `ChunkSendToken` when the chunk was queued — a matching
+    `chunk_sent()` callback will fire when the OS accepts the data.
+    Returns `None` when the call was a no-op (wrong state, empty data,
+    or HTTP/1.0 request where chunked encoding was rejected).
 
     Only valid after `start_chunked_response()`. Calls in other states are
     silently ignored.
@@ -128,9 +137,13 @@ class ref Responder
       | let s: String val => s.size()
       | let a: Array[U8] val => a.size()
       end
-      if size == 0 then return end
+      if size == 0 then return None end
+      let token = _queue.create_chunk_token()
       let chunk = _ChunkedEncoder.chunk(data)
-      _queue.send_data(_id, consume chunk)
+      _queue.send_data(_id, consume chunk, token)
+      token
+    else
+      None
     end
 
   fun ref finish_response() =>

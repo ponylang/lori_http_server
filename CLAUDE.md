@@ -65,11 +65,13 @@ Connections close when the client sends `Connection: close`, on HTTP/1.0 request
 
 **Streaming-only body delivery**: Body data is delivered incrementally via `body_chunk()` callbacks on `HTTPServerLifecycleEventReceiver`. Actors that need the complete body accumulate chunks manually. There is no built-in buffering adapter — convenience buffered body delivery is future work per [lori #7](https://github.com/ponylang/lori/issues/7).
 
-**Per-request Responder and response queue**: Each request gets its own `Responder` instance. Both `request()` and `request_complete()` receive the same `Request val` and `Responder`. Simple servers override only `request_complete(request', responder)` — it delivers everything needed to inspect the request and send a response. Override `request()` only when you need to respond before the body arrives (e.g., rejecting with 413 Payload Too Large, starting a streaming response). The user's listener creates a new actor per connection in `_on_accept`. Responders send data through a `_ResponseQueue` that ensures pipelined responses are delivered in request order, regardless of the order actors respond. The queue calls back to the protocol via `_ResponseQueueNotify` for TCP I/O — it never holds the TCP connection directly. Responders support two modes: complete (`respond()` with pre-serialized bytes from `ResponseBuilder`) and streaming (`start_chunked_response()` + `send_chunk()` + `finish_response()` using chunked transfer encoding). After connection close, any Responders the actor still holds become inert — their methods route to the closed queue, which no-ops everything.
+**Per-request Responder and response queue**: Each request gets its own `Responder` instance. Both `request()` and `request_complete()` receive the same `Request val` and `Responder`. Simple servers override only `request_complete(request', responder)` — it delivers everything needed to inspect the request and send a response. Override `request()` only when you need to respond before the body arrives (e.g., rejecting with 413 Payload Too Large, starting a streaming response). The user's listener creates a new actor per connection in `_on_accept`. Responders send data through a `_ResponseQueue` that ensures pipelined responses are delivered in request order, regardless of the order actors respond. The queue calls back to the protocol via `_ResponseQueueNotify` for TCP I/O — it never holds the TCP connection directly. Responders support two modes: complete (`respond()` with pre-serialized bytes from `ResponseBuilder`) and streaming (`start_chunked_response()` + `send_chunk()` + `finish_response()` using chunked transfer encoding). `send_chunk()` returns a `ChunkSendToken` (or `None` for no-op cases); the token is delivered to `chunk_sent()` when the OS accepts the data, enabling flow-controlled streaming. After connection close, any Responders the actor still holds become inert — their methods route to the closed queue, which no-ops everything.
 
 **Response builder**: `ResponseBuilder` constructs complete HTTP responses as pre-serialized `Array[U8] val` byte arrays, using a typed state machine (via return-type narrowing) to enforce correct construction order: status line, then headers, then body. The builder output is suitable for caching and reuse via `Responder.respond()`, avoiding per-request serialization overhead. The caller is responsible for all response formatting including Content-Length — no headers are injected automatically.
 
 **Idle timer flow**: Timer fires -> `_IdleTimerNotify` (in Timers actor) sends `be _idle_timeout()` to user's actor (via tag) -> `HTTPServerActor._idle_timeout()` default impl forwards to `_http_connection()._handle_idle_timeout()`.
+
+**Flow-controlled streaming**: `send_chunk()` returns a `ChunkSendToken` immediately. The chunk data and token flow through the response queue (buffered or flushed directly depending on head-of-line position and throttle state). On flush, `_flush_data(data, token)` calls `TCPConnection.send()` and pushes the HTTP-level token onto a FIFO (`_pending_sent_tokens`) inside `HTTPServer`. When lori's `_on_sent` fires asynchronously (data handed to OS), `HTTPServer._handle_sent()` pops the FIFO — if the token is a `ChunkSendToken`, it delivers `chunk_sent(token)` to the actor; if `None` (internal send: headers, terminal chunk, error response), it skips. The FIFO ordering depends on lori's guarantee that `_on_sent` callbacks arrive in the same order as the `send()` calls that produced them. The FIFO is cleared on connection close (`_close_connection()` and `_handle_closed()`) — any `_on_send_failed` callbacks that arrive afterward find the `_Closed` state and no-op.
 
 ### Implementation plan
 
@@ -94,7 +96,8 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `_parser_state.pony` — Parser state machine (state interface, 6 state classes, `_BufferScan`)
   - `_request_parser.pony` — Request parser class (entry point, buffer management)
   - `request.pony` — Immutable request metadata bundle (`Request val`: method, URI, version, headers)
-  - `http_server_lifecycle_event_receiver.pony` — HTTP callback trait (`HTTPServerLifecycleEventReceiver`: request, body_chunk, request_complete, closed, throttled, unthrottled)
+  - `chunk_send_token.pony` — Opaque chunk send token (`ChunkSendToken val`, `Equatable`, private constructor)
+  - `http_server_lifecycle_event_receiver.pony` — HTTP callback trait (`HTTPServerLifecycleEventReceiver`: request, body_chunk, request_complete, chunk_sent, closed, throttled, unthrottled)
   - `http_server_actor.pony` — Server actor trait (`HTTPServerActor`: extends `TCPConnectionActor` and `HTTPServerLifecycleEventReceiver`, provides `_connection()` and `_idle_timeout()` defaults)
   - `http_server.pony` — Package docstring and protocol class (`HTTPServer`: owns TCP connection + parser + URI parsing + response queue + idle timer, implements `ServerLifecycleEventReceiver` + `_RequestParserNotify` + `_ResponseQueueNotify`)
   - `_keep_alive_decision.pony` — Keep-alive logic (`_KeepAliveDecision` primitive)
@@ -105,7 +108,7 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `_chunked_encoder.pony` — Chunked transfer encoding (`_ChunkedEncoder` primitive)
   - `server_config.pony` — Server configuration (`ServerConfig` class)
   - `_error_response.pony` — Pre-built error response strings (`_ErrorResponse` primitive)
-  - `_connection_state.pony` — Connection lifecycle states (`_Active`, `_Closed`)
+  - `_connection_state.pony` — Connection lifecycle states (`_Active`, `_Closed`; routes `on_sent` for chunk token delivery)
 - `assets/` — test assets
   - `cert.pem` — Self-signed test certificate for SSL examples
   - `key.pem` — Test private key for SSL examples
@@ -113,4 +116,4 @@ No release notes until after the first release. This project is pre-1.0 and hasn
   - `hello/main.pony` — Greeting server with URI parsing and query parameter extraction
   - `builder/main.pony` — Dynamic response construction using `ResponseBuilder` and `respond()`
   - `ssl/main.pony` — HTTPS server using SSL/TLS
-  - `streaming/main.pony` — Timer-driven chunked transfer encoding streaming response
+  - `streaming/main.pony` — Flow-controlled chunked transfer encoding streaming response using `chunk_sent()` callbacks

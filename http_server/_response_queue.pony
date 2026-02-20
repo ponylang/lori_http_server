@@ -7,14 +7,17 @@ trait ref _ResponseQueueNotify
   calls occur synchronously within the connection actor's execution context.
   """
 
-  fun ref _flush_data(data: ByteSeq)
+  fun ref _flush_data(data: ByteSeq,
+    token: (ChunkSendToken | None) = None)
     """
     Send response data to the TCP connection.
 
     Called when data for the head-of-line entry is ready to send. The
-    implementor should call `TCPConnection.send()` and handle send errors
-    (e.g., by calling `_close_connection()` which in turn calls
-    `_queue.close()`).
+    `token` is `ChunkSendToken` for user chunk data (from `send_chunk()`)
+    or `None` for internal sends (headers, terminal chunk, complete
+    responses). The implementor should call `TCPConnection.send()` and
+    handle send errors (e.g., by calling `_close_connection()` which in
+    turn calls `_queue.close()`).
     """
 
   fun ref _response_complete(keep_alive: Bool)
@@ -35,11 +38,13 @@ class ref _QueueEntry
   """Per-request buffered response data."""
   let keep_alive: Bool
   embed data: Array[ByteSeq] ref
+  embed tokens: Array[(ChunkSendToken | None)] ref
   var finished: Bool = false
 
   new create(keep_alive': Bool) =>
     keep_alive = keep_alive'
     data = Array[ByteSeq]
+    tokens = Array[(ChunkSendToken | None)]
 
 class ref _ResponseQueue
   """
@@ -64,6 +69,7 @@ class ref _ResponseQueue
   let _notify: _ResponseQueueNotify ref
   var _head_id: U64 = 0
   var _next_id: U64 = 0
+  var _next_chunk_token_id: U64 = 0
   embed _entries: Array[_QueueEntry]
   var _throttled: Bool = false
   var _closed: Bool = false
@@ -72,6 +78,19 @@ class ref _ResponseQueue
     """Create a response queue with the given notify callback."""
     _notify = notify
     _entries = Array[_QueueEntry]
+
+  fun ref create_chunk_token(): ChunkSendToken =>
+    """
+    Create a new chunk send token with a unique ID.
+
+    Called by `Responder.send_chunk()` to mint a token before submitting
+    data to the queue. The token travels alongside the data through
+    buffering and flushing, ultimately reaching the actor via
+    `chunk_sent()` when the OS accepts the bytes.
+    """
+    let id = _next_chunk_token_id
+    _next_chunk_token_id = _next_chunk_token_id + 1
+    ChunkSendToken._create(id)
 
   fun ref register(keep_alive: Bool): U64 =>
     """
@@ -85,22 +104,26 @@ class ref _ResponseQueue
     _entries.push(_QueueEntry(keep_alive))
     id
 
-  fun ref send_data(id: U64, data: ByteSeq) =>
+  fun ref send_data(id: U64, data: ByteSeq,
+    token: (ChunkSendToken | None) = None)
+  =>
     """
     Submit response data for a request.
 
     If the request is the head of the queue and the queue is not throttled,
     data is sent immediately via `_flush_data`. Otherwise, data is buffered
-    in the entry for later flushing.
+    in the entry for later flushing. The optional `token` travels alongside
+    the data — `ChunkSendToken` for user chunks, `None` for internal sends.
     """
     if _closed then return end
     let index = (id - _head_id).usize()
     try
       let entry = _entries(index)?
       if (id == _head_id) and (not _throttled) then
-        _notify._flush_data(data)
+        _notify._flush_data(data, token)
       else
         entry.data.push(data)
+        entry.tokens.push(token)
       end
     else
       _Unreachable()
@@ -187,12 +210,19 @@ class ref _ResponseQueue
     if _closed then return end
     try
       let entry = _entries(0)?
-      // Send all buffered data for the new head
-      for chunk in entry.data.values() do
+      // Send all buffered data for the new head (data and tokens in lockstep)
+      var i: USize = 0
+      while i < entry.data.size() do
         if _closed then return end
-        _notify._flush_data(chunk)
+        try
+          _notify._flush_data(entry.data(i)?, entry.tokens(i)?)
+        else
+          _Unreachable()
+        end
+        i = i + 1
       end
       entry.data.clear()
+      entry.tokens.clear()
       if entry.finished and (not _closed) then
         _advance_head()
       end
@@ -204,11 +234,18 @@ class ref _ResponseQueue
     """
     try
       let entry = _entries(0)?
-      for chunk in entry.data.values() do
+      var i: USize = 0
+      while i < entry.data.size() do
         if _closed then return end
-        _notify._flush_data(chunk)
+        try
+          _notify._flush_data(entry.data(i)?, entry.tokens(i)?)
+        else
+          _Unreachable()
+        end
+        i = i + 1
       end
       entry.data.clear()
+      entry.tokens.clear()
       if entry.finished and (not _closed) then
         _advance_head()
       end

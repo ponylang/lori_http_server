@@ -100,12 +100,22 @@ actor \nodoc\ Main is TestList
     test(_TestQueueThrottleUnthrottle)
     test(_TestQueueCloseOnFlushData)
 
+    // Response queue token tests
+    test(Property1UnitTest[Array[USize] val](
+      _PropertyQueueTokenOrder))
+    test(_TestQueueTokenImmediateFlush)
+    test(_TestQueueTokenBufferedFlush)
+    test(_TestQueueTokenNoneForInternalSends)
+    test(_TestQueueTokenThrottle)
+    test(_TestQueueTokenClose)
+
     // Pipelining and streaming integration tests
     test(_TestPipelineCorrectness)
     test(_TestPipelineConnectionClose)
     test(_TestStreamingResponse)
     test(_TestMaxPendingOverflow)
     test(_TestHTTP10ChunkedRejection)
+    test(_TestChunkSentCallback)
 
     // URI parsing integration tests
     test(_TestURIParsing)

@@ -53,14 +53,17 @@ actor MyServer is HTTPServerActor
     responder.respond(response)
 ```
 
-For streaming responses, use chunked transfer encoding:
+For streaming responses, use chunked transfer encoding. Each
+`send_chunk()` returns a `ChunkSendToken` — override `chunk_sent()`
+to drive flow-controlled delivery:
 
 ```pony
 fun ref request_complete(request': Request val,
   responder: Responder)
 =>
   responder.start_chunked_response(StatusOK)
-  responder.send_chunk("chunk 1")
+  let token = responder.send_chunk("chunk 1")
+  // When chunk_sent(token) fires, send the next chunk...
   responder.send_chunk("chunk 2")
   responder.finish_response()
 ```
@@ -162,6 +165,7 @@ class HTTPServer is
   var _parser: (_RequestParser | None) = None
   var _idle: Bool = true
   var _idle_timer: (Timer tag | None) = None
+  embed _pending_sent_tokens: Array[(ChunkSendToken | None)]
 
   new none() =>
     """
@@ -176,6 +180,7 @@ class HTTPServer is
     _enclosing = None
     _config = None
     _timers = None
+    _pending_sent_tokens = Array[(ChunkSendToken | None)]
 
   new create(
     auth: lori.TCPServerAuth,
@@ -196,6 +201,7 @@ class HTTPServer is
     _enclosing = server_actor
     _config = config
     _timers = timers
+    _pending_sent_tokens = Array[(ChunkSendToken | None)]
     _queue = _ResponseQueue(this)
     _parser = _RequestParser(this, config._parser_config())
     _tcp_connection =
@@ -220,6 +226,7 @@ class HTTPServer is
     _enclosing = server_actor
     _config = config
     _timers = timers
+    _pending_sent_tokens = Array[(ChunkSendToken | None)]
     _queue = _ResponseQueue(this)
     _parser = _RequestParser(this, config._parser_config())
     _tcp_connection =
@@ -253,6 +260,9 @@ class HTTPServer is
 
   fun ref _on_unthrottled() =>
     _state.on_unthrottled(this)
+
+  fun ref _on_sent(token: lori.SendToken) =>
+    _state.on_sent(this, token)
 
   //
   // _RequestParserNotify — forwarding parser events to receiver
@@ -351,15 +361,22 @@ class HTTPServer is
   // decisions.
   //
 
-  fun ref _flush_data(data: ByteSeq) =>
+  fun ref _flush_data(data: ByteSeq,
+    token: (ChunkSendToken | None) = None)
+  =>
     """
     Send response data to the TCP connection.
 
     Called when data for the head-of-line entry is ready to send.
-    On send error, closes the connection (which in turn closes the queue,
-    making any remaining Responders inert).
+    On successful send, pushes the HTTP-level token onto the FIFO so
+    `_handle_sent` can correlate the lori `_on_sent` callback back to
+    the originating `send_chunk()` call. On send error, closes the
+    connection (which in turn closes the queue, making any remaining
+    Responders inert).
     """
     match _tcp_connection.send(data)
+    | let _: lori.SendToken =>
+      _pending_sent_tokens.push(token)
     | let _: lori.SendError =>
       _close_connection()
     end
@@ -395,6 +412,7 @@ class HTTPServer is
     """Notify the receiver that the connection has closed."""
     match _parser | let p: _RequestParser => p.stop() end
     match _queue | let q: _ResponseQueue => q.close() end
+    _pending_sent_tokens.clear()
     match _lifecycle_event_receiver
     | let r: HTTPServerLifecycleEventReceiver ref => r.closed()
     | None => _Unreachable()
@@ -417,6 +435,26 @@ class HTTPServer is
     match _lifecycle_event_receiver
     | let r: HTTPServerLifecycleEventReceiver ref => r.unthrottled()
     | None => _Unreachable()
+    end
+
+  fun ref _handle_sent(token: lori.SendToken) =>
+    """
+    Correlate a lori send completion back to an HTTP-level chunk token.
+
+    Pops the next entry from the FIFO. If it's a `ChunkSendToken`,
+    delivers `chunk_sent(token)` to the actor. If `None`, it was an
+    internal send (headers, terminal chunk, complete response) — skip it.
+    """
+    try
+      match _pending_sent_tokens.shift()?
+      | let ct: ChunkSendToken =>
+        match _lifecycle_event_receiver
+        | let r: HTTPServerLifecycleEventReceiver ref => r.chunk_sent(ct)
+        | None => _Unreachable()
+        end
+      end
+    else
+      _Unreachable()
     end
 
   fun ref _handle_idle_timeout() =>
@@ -450,6 +488,7 @@ class HTTPServer is
     | let _: _Active =>
       match _parser | let p: _RequestParser => p.stop() end
       match _queue | let q: _ResponseQueue => q.close() end
+      _pending_sent_tokens.clear()
       _cancel_idle_timer()
       match _lifecycle_event_receiver
       | let r: HTTPServerLifecycleEventReceiver ref => r.closed()
