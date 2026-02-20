@@ -69,6 +69,23 @@ trait ref HTTPServerLifecycleEventReceiver
     """
     None
 
+  fun ref chunk_sent(token: ChunkSendToken) =>
+    """
+    Called when a chunk from `send_chunk()` has been handed to the OS.
+
+    The `token` matches the `ChunkSendToken` returned by the
+    `send_chunk()` call that produced the data. Fires asynchronously
+    in a subsequent behavior turn — never during the `send_chunk()` call
+    itself. Only user chunks trigger this callback; internal sends
+    (headers, terminal chunk, error responses) do not.
+
+    Use this for flow-controlled streaming: send a chunk, wait for the
+    callback, then send the next chunk. Multiple chunks can be in flight
+    simultaneously (windowed); use the tokens to track which have been
+    delivered.
+    """
+    None
+
   fun ref unthrottled() =>
     """
     Called when backpressure is released on the connection.

@@ -1108,6 +1108,137 @@ actor \nodoc\ _TestChunkedFallbackServer is HTTPServerActor
       .build()
     responder.respond(response)
 
+class \nodoc\ iso _TestChunkSentCallback is UnitTest
+  """
+  Server uses chunk_sent() to drive subsequent chunks. Client sends a
+  request, reads the complete chunked response, and verifies all chunks
+  arrived. This exercises the full _on_sent -> HTTPServer -> actor chain.
+  """
+  fun name(): String => "server/chunk_sent callback"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45894"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port,
+      _TestChunkSentServerFactory, config,
+      {(h': TestHelper, port': String) =>
+        let client = _TestChunkSentClient(h', port')
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+// ---------------------------------------------------------------------------
+// chunk_sent test server: drives chunks from chunk_sent callback
+// ---------------------------------------------------------------------------
+
+class \nodoc\ val _TestChunkSentServerFactory is _TestConnectionFactory
+  fun apply(
+    auth: lori.TCPServerAuth,
+    fd: U32,
+    config: ServerConfig,
+    ssl_ctx: (ssl_net.SSLContext val | None),
+    timers: (Timers | None)
+  ): lori.TCPConnectionActor =>
+    _TestChunkSentServer(auth, fd, config, ssl_ctx, timers)
+
+actor \nodoc\ _TestChunkSentServer is HTTPServerActor
+  var _http: HTTPServer = HTTPServer.none()
+  var _responder: (Responder | None) = None
+  var _chunks_sent: USize = 0
+
+  new create(
+    auth: lori.TCPServerAuth,
+    fd: U32,
+    config: ServerConfig,
+    ssl_ctx: (ssl_net.SSLContext val | None),
+    timers: (Timers | None))
+  =>
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
+
+  fun ref _http_connection(): HTTPServer => _http
+
+  fun ref request_complete(request': Request val, responder: Responder) =>
+    let headers = recover val
+      let h = Headers
+      h.set("content-type", "text/plain")
+      h
+    end
+    responder.start_chunked_response(StatusOK, headers)
+    responder.send_chunk("cs-chunk-1")
+    _responder = responder
+    _chunks_sent = 1
+
+  fun ref chunk_sent(token: ChunkSendToken) =>
+    match _responder
+    | let r: Responder =>
+      _chunks_sent = _chunks_sent + 1
+      if _chunks_sent <= 3 then
+        r.send_chunk("cs-chunk-" + _chunks_sent.string())
+      else
+        r.finish_response()
+        _responder = None
+      end
+    end
+
+// ---------------------------------------------------------------------------
+// chunk_sent client: sends request, verifies flow-controlled chunked response
+// ---------------------------------------------------------------------------
+
+actor \nodoc\ _TestChunkSentClient is
+  (lori.TCPConnectionActor & lori.ClientLifecycleEventReceiver)
+
+  var _tcp_connection: lori.TCPConnection = lori.TCPConnection.none()
+  let _h: TestHelper
+  var _response: String ref = String
+
+  new create(h: TestHelper, port: String) =>
+    _h = h
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    _tcp_connection = lori.TCPConnection.client(
+      lori.TCPConnectAuth(_h.env.root), host, port, "", this, this)
+
+  fun ref _connection(): lori.TCPConnection =>
+    _tcp_connection
+
+  fun ref _on_connected() =>
+    _tcp_connection.send(
+      "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+  fun ref _on_received(data: Array[U8] iso) =>
+    _response.append(consume data)
+    let r: String val = _response.clone()
+    // Check for terminal chunk
+    if r.contains("0\r\n\r\n") then
+      if not (r.contains("Transfer-Encoding: chunked")
+        or r.contains("transfer-encoding: chunked"))
+      then
+        _h.fail(
+          "Missing Transfer-Encoding: chunked header in:\n" + r)
+        _h.complete(false)
+        return
+      end
+      // Verify all 3 chunks arrived
+      if not (r.contains("cs-chunk-1") and r.contains("cs-chunk-2")
+        and r.contains("cs-chunk-3"))
+      then
+        _h.fail("Missing chunk data in:\n" + r)
+        _h.complete(false)
+        return
+      end
+      _h.complete(true)
+    end
+
+  fun ref _on_connection_failure() =>
+    _h.fail("Client connection failed")
+    _h.complete(false)
+
 // ---------------------------------------------------------------------------
 // URI parsing integration tests
 // ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
+use lori = "lori"
+
 trait ref _ConnectionState
   """
   Connection lifecycle state.
 
-  Dispatches lori events to the appropriate servercol methods based on
+  Dispatches lori events to the appropriate server methods based on
   what operations are valid in each state. Two states: `_Active`
   (processing requests, including idle keep-alive periods) and `_Closed`
   (all operations are no-ops).
@@ -19,6 +21,9 @@ trait ref _ConnectionState
 
   fun ref on_unthrottled(server: HTTPServer ref)
     """Handle backpressure released notification."""
+
+  fun ref on_sent(server: HTTPServer ref, token: lori.SendToken)
+    """Handle send completion notification from lori."""
 
 class ref _Active is _ConnectionState
   """
@@ -37,6 +42,9 @@ class ref _Active is _ConnectionState
   fun ref on_unthrottled(server: HTTPServer ref) =>
     server._handle_unthrottled()
 
+  fun ref on_sent(server: HTTPServer ref, token: lori.SendToken) =>
+    server._handle_sent(token)
+
 class ref _Closed is _ConnectionState
   """
   Connection is closed — all operations are no-ops.
@@ -52,4 +60,7 @@ class ref _Closed is _ConnectionState
     None
 
   fun ref on_unthrottled(server: HTTPServer ref) =>
+    None
+
+  fun ref on_sent(server: HTTPServer ref, token: lori.SendToken) =>
     None
