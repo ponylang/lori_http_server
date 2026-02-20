@@ -312,7 +312,12 @@ actor \nodoc\ _TestHelloServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -713,7 +718,12 @@ actor \nodoc\ _TestPipelineServer is HTTPServerActor
     timers: (Timers | None))
   =>
     _responders = Array[Responder]
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -762,7 +772,12 @@ actor \nodoc\ _TestStreamServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -964,7 +979,12 @@ actor \nodoc\ _TestPartialRespondServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -1058,7 +1078,12 @@ actor \nodoc\ _TestChunkedFallbackServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -1130,7 +1155,12 @@ actor \nodoc\ _TestURIParsingServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -1191,7 +1221,12 @@ actor \nodoc\ _TestConnectURIServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -1265,7 +1300,12 @@ actor \nodoc\ _TestBodyServer is HTTPServerActor
     ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = match ssl_ctx
+    | let ctx: ssl_net.SSLContext val =>
+      HTTPServer.ssl(auth, ctx, fd, this, config, timers)
+    else
+      HTTPServer(auth, fd, this, config, timers)
+    end
 
   fun ref _http_connection(): HTTPServer => _http
 

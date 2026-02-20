@@ -41,7 +41,7 @@ class HTTPServer is
   the HTTP parser, and forwards HTTP-level events to the owning actor.
 
   Use `none()` as the field default so that `this` is `ref` in the
-  actor constructor body, then replace with `create()`:
+  actor constructor body, then replace with `create()` or `ssl()`:
 
   ```pony
   actor MyServer is HTTPServerActor
@@ -49,11 +49,9 @@ class HTTPServer is
 
     new create(auth: lori.TCPServerAuth, fd: U32,
       config: ServerConfig,
-      ssl_ctx: (ssl_net.SSLContext val | None),
       timers: (Timers | None))
     =>
-      _http = HTTPServer(auth, fd, ssl_ctx, this, config,
-        timers)
+      _http = HTTPServer(auth, fd, this, config, timers)
   ```
   """
   let _lifecycle_event_receiver: (HTTPServerLifecycleEventReceiver ref | None)
@@ -76,8 +74,8 @@ class HTTPServer is
 
     Used as the default value for the `_http` field in `HTTPServerActor`
     implementations, allowing `this` to be `ref` in the actor constructor
-    body. The placeholder is immediately replaced by `create()` — its
-    methods must never be called.
+    body. The placeholder is immediately replaced by `create()` or `ssl()`
+    — its methods must never be called.
     """
     _lifecycle_event_receiver = None
     _enclosing = None
@@ -87,13 +85,12 @@ class HTTPServer is
   new create(
     auth: lori.TCPServerAuth,
     fd: U32,
-    ssl_ctx: (ssl_net.SSLContext val | None),
     server_actor: HTTPServerActor ref,
     config: ServerConfig,
     timers: (Timers | None))
   =>
     """
-    Create the protocol handler for a new connection.
+    Create the protocol handler for a plain HTTP connection.
 
     Called inside the `HTTPServerActor` constructor. The `server_actor`
     parameter must be the actor's `this` — it provides both the
@@ -104,17 +101,34 @@ class HTTPServer is
     _enclosing = server_actor
     _config = config
     _timers = timers
-    // All let fields now initialized + all var fields have defaults,
-    // so `this` is ref — required by _ResponseQueue, TCPConnection.server,
-    // and _RequestParser constructors.
     _queue = _ResponseQueue(this)
     _parser = _RequestParser(this, config._parser_config())
-    _tcp_connection = match ssl_ctx
-    | let ctx: ssl_net.SSLContext val =>
-      lori.TCPConnection.ssl_server(auth, ctx, fd, server_actor, this)
-    else
+    _tcp_connection =
       lori.TCPConnection.server(auth, fd, server_actor, this)
-    end
+
+  new ssl(
+    auth: lori.TCPServerAuth,
+    ssl_ctx: ssl_net.SSLContext val,
+    fd: U32,
+    server_actor: HTTPServerActor ref,
+    config: ServerConfig,
+    timers: (Timers | None))
+  =>
+    """
+    Create the protocol handler for an HTTPS connection.
+
+    Like `create`, but wraps the TCP connection in SSL using the provided
+    `SSLContext`. Called inside the `HTTPServerActor` constructor for
+    HTTPS connections.
+    """
+    _lifecycle_event_receiver = server_actor
+    _enclosing = server_actor
+    _config = config
+    _timers = timers
+    _queue = _ResponseQueue(this)
+    _parser = _RequestParser(this, config._parser_config())
+    _tcp_connection =
+      lori.TCPConnection.ssl_server(auth, ssl_ctx, fd, server_actor, this)
 
   fun ref _connection(): lori.TCPConnection =>
     """Return the underlying TCP connection."""

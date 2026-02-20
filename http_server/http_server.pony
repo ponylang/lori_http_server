@@ -28,17 +28,16 @@ actor MyListener is lori.TCPListenerActor
   fun ref _listener(): lori.TCPListener => _tcp_listener
 
   fun ref _on_accept(fd: U32): lori.TCPConnectionActor =>
-    MyServer(_server_auth, fd, _config, None, None)
+    MyServer(_server_auth, fd, _config, None)
 
 actor MyServer is HTTPServerActor
   var _http: HTTPServer = HTTPServer.none()
 
   new create(auth: lori.TCPServerAuth, fd: U32,
     config: ServerConfig,
-    ssl_ctx: (ssl_net.SSLContext val | None),
     timers: (Timers | None))
   =>
-    _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+    _http = HTTPServer(auth, fd, this, config, timers)
 
   fun ref _http_connection(): HTTPServer => _http
 
@@ -66,8 +65,8 @@ fun ref request_complete(request': Request val,
   responder.finish_response()
 ```
 
-For HTTPS, store an `SSLContext val` in the listener and pass it through
-in `_on_accept`:
+For HTTPS, use `HTTPServer.ssl` instead of `HTTPServer`. Store an
+`SSLContext val` in the listener and pass it through in `_on_accept`:
 
 ```pony
 use "http_server"
@@ -108,6 +107,8 @@ actor MyListener is lori.TCPListenerActor
     MyServer(_server_auth, fd, _config, _ssl_ctx, None)
 ```
 
-Actors are identical for HTTP and HTTPS — SSL is handled transparently
-by the protocol layer.
+The actor explicitly chooses `HTTPServer` (plain HTTP) or `HTTPServer.ssl`
+(HTTPS) in its constructor. The `MyServer` actor in the HTTPS example
+would use `HTTPServer.ssl(auth, ssl_ctx, fd, this, config, timers)`
+instead of `HTTPServer(auth, fd, this, config, timers)`.
 """

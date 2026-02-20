@@ -19,10 +19,9 @@ trait tag HTTPServerActor is
 
     new create(auth: lori.TCPServerAuth, fd: U32,
       config: ServerConfig,
-      ssl_ctx: (ssl_net.SSLContext val | None),
       timers: (Timers | None))
     =>
-      _http = HTTPServer(auth, fd, ssl_ctx, this, config, timers)
+      _http = HTTPServer(auth, fd, this, config, timers)
 
     fun ref _http_connection(): HTTPServer => _http
 
@@ -32,9 +31,12 @@ trait tag HTTPServerActor is
       // build and send response using request' and responder
   ```
 
+  For HTTPS, use `HTTPServer.ssl(auth, ssl_ctx, fd, this, config, timers)`
+  instead of `HTTPServer(auth, fd, this, config, timers)`.
+
   The `none()` default ensures all fields are initialized before the
   constructor body runs, so `this` is `ref` when passed to
-  `HTTPServer.create()`.
+  `HTTPServer.create()` or `HTTPServer.ssl()`.
   """
 
   fun ref _http_connection(): HTTPServer
