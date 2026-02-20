@@ -92,9 +92,5 @@ actor StreamServer is http_server.HTTPServerActor
       end
       if _chunks_sent == 5 then
         r.finish_response()
-        _responder = None
       end
     end
-
-  fun ref closed() =>
-    _responder = None
