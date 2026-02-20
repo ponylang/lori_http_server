@@ -6,11 +6,13 @@ class val _ResponseInput is Stringable
   let status_idx: USize
   let num_headers: USize
   let body_size: USize
+  let use_http10: Bool
 
-  new val create(si: USize, nh: USize, bs: USize) =>
+  new val create(si: USize, nh: USize, bs: USize, h10: Bool) =>
     status_idx = si
     num_headers = nh
     body_size = bs
+    use_http10 = h10
 
   fun string(): String iso^ =>
     recover iso
@@ -20,6 +22,8 @@ class val _ResponseInput is Stringable
         .>append(num_headers.string())
         .>append(", body_size=")
         .>append(body_size.string())
+        .>append(", use_http10=")
+        .>append(use_http10.string())
         .>append(")")
     end
 
@@ -31,11 +35,12 @@ class \nodoc\ iso _PropertyResponseWireFormat is Property1[_ResponseInput]
   fun name(): String => "response_serializer/wire_format"
 
   fun gen(): Generator[_ResponseInput] =>
-    Generators.map3[USize, USize, USize, _ResponseInput](
+    Generators.map4[USize, USize, USize, Bool, _ResponseInput](
       Generators.usize(0, 5),
       Generators.usize(0, 5),
       Generators.usize(0, 100),
-      {(si, nh, bs) => _ResponseInput(si, nh, bs) })
+      Generators.bool(),
+      {(si, nh, bs, h10) => _ResponseInput(si, nh, bs, h10) })
 
   fun ref property(arg1: _ResponseInput, ph: PropertyHelper) =>
     let statuses: Array[Status val] val =
@@ -48,6 +53,9 @@ class \nodoc\ iso _PropertyResponseWireFormat is Property1[_ResponseInput]
     else
       StatusOK
     end
+
+    let version: Version =
+      if arg1.use_http10 then HTTP10 else HTTP11 end
 
     let headers = recover val
       let h = Headers
@@ -73,13 +81,16 @@ class \nodoc\ iso _PropertyResponseWireFormat is Property1[_ResponseInput]
       None
     end
 
-    let result: Array[U8] val = _ResponseSerializer(status, headers, body)
+    let result: Array[U8] val =
+      _ResponseSerializer(status, headers, body where version = version)
     let output = String.from_array(result)
 
-    // Verify status line starts with HTTP/1.1
+    // Verify status line starts with correct version
+    let version_prefix: String val =
+      if arg1.use_http10 then "HTTP/1.0 " else "HTTP/1.1 " end
     ph.assert_true(
-      output.contains("HTTP/1.1 "),
-      "output should contain HTTP/1.1")
+      output.contains(version_prefix),
+      "output should contain " + version_prefix)
 
     // Verify status code and reason appear
     let code_str: String val = status.code().string()
@@ -127,6 +138,7 @@ class \nodoc\ iso _TestResponseSerializerKnownGood is UnitTest
     _test_200_no_headers_no_body(h)
     _test_200_with_header_and_body(h)
     _test_404_no_body(h)
+    _test_http10_200_no_body(h)
 
   fun _test_200_no_headers_no_body(h: TestHelper) =>
     let headers = recover val Headers end
@@ -161,3 +173,13 @@ class \nodoc\ iso _TestResponseSerializerKnownGood is UnitTest
       expected,
       String.from_array(result),
       "404 Not Found, no body")
+
+  fun _test_http10_200_no_body(h: TestHelper) =>
+    let headers = recover val Headers end
+    let result: Array[U8] val =
+      _ResponseSerializer(StatusOK, headers where version = HTTP10)
+    let expected = "HTTP/1.0 200 OK\r\n\r\n"
+    h.assert_eq[String val](
+      expected,
+      String.from_array(result),
+      "HTTP/1.0 200 OK")

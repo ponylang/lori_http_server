@@ -10,11 +10,12 @@ class \nodoc\ iso _PropertyBuilderMatchesSerializer
   fun name(): String => "response_builder/matches_serializer"
 
   fun gen(): Generator[_ResponseInput] =>
-    Generators.map3[USize, USize, USize, _ResponseInput](
+    Generators.map4[USize, USize, USize, Bool, _ResponseInput](
       Generators.usize(0, 5),
       Generators.usize(0, 5),
       Generators.usize(0, 100),
-      {(si, nh, bs) => _ResponseInput(si, nh, bs) })
+      Generators.bool(),
+      {(si, nh, bs, h10) => _ResponseInput(si, nh, bs, h10) })
 
   fun ref property(arg1: _ResponseInput, ph: PropertyHelper) =>
     let statuses: Array[Status val] val =
@@ -27,6 +28,9 @@ class \nodoc\ iso _PropertyBuilderMatchesSerializer
     else
       StatusOK
     end
+
+    let version: Version =
+      if arg1.use_http10 then HTTP10 else HTTP11 end
 
     let headers = recover val
       let h = Headers
@@ -53,10 +57,12 @@ class \nodoc\ iso _PropertyBuilderMatchesSerializer
     end
 
     // Build with _ResponseSerializer
-    let serialized: Array[U8] val = _ResponseSerializer(status, headers, body)
+    let serialized: Array[U8] val =
+      _ResponseSerializer(status, headers, body where version = version)
 
     // Build with ResponseBuilder
-    var builder: ResponseBuilderHeaders = ResponseBuilder(status)
+    var builder: ResponseBuilderHeaders =
+      ResponseBuilder(status where version = version)
     for (hdr_name, hdr_value) in headers.values() do
       builder = builder.add_header(hdr_name, hdr_value)
     end
