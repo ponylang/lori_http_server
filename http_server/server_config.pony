@@ -6,7 +6,6 @@ primitive DefaultIdleTimeout
     match lori.MakeIdleTimeout(60_000)
     | let t: lori.IdleTimeout => t
     else
-      // Unreachable: 60_000 > 0 always passes IdleTimeout validation.
       _Unreachable()
       None
     end
