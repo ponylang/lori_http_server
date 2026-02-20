@@ -26,7 +26,7 @@ trait ref _ConnectionState
     """Handle send completion notification from lori."""
 
   fun ref on_idle_timeout(server: HTTPServer ref)
-    """Handle idle timeout notification from lori."""
+    """Handle connection going idle."""
 
 class ref _Active is _ConnectionState
   """
