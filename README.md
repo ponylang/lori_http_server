@@ -1,6 +1,6 @@
 # stallion
 
-An HTTP server for [Pony](https://www.ponylang.io/), built on [lori](https://github.com/ponylang/lori). Your actor IS the connection — no hidden internal actors, no notify objects. Responses are built with `ResponseBuilder` for complete responses, or streamed with flow-controlled chunked transfer encoding.
+An HTTP server for Pony, built on [lori](https://github.com/ponylang/lori). Your actor IS the connection — no hidden internal actors, no notify objects. Responses are built with `ResponseBuilder` for complete responses, or streamed with flow-controlled chunked transfer encoding.
 
 ## Status
 
