@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add cooperative scheduler yielding for HTTP connections ([PR #63](https://github.com/ponylang/stallion/pull/63))
 
 ### Changed
 
