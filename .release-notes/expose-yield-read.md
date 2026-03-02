@@ -1,4 +1,4 @@
-## Expose lori's yield_read() on HTTPServer
+## Add cooperative scheduler yielding for HTTP connections
 
 Under sustained pipelined traffic, a single connection's read loop can monopolize the Pony scheduler. `HTTPServer.yield_read()` lets the application exit the read loop cooperatively, giving other actors a chance to run. Reading resumes automatically in the next scheduler turn.
 
