@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Upgrade lori dependency to 0.10.0 ([PR #64](https://github.com/ponylang/stallion/pull/64))
 
 ## [0.3.2] - 2026-03-02
 
