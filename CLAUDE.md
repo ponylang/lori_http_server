@@ -5,6 +5,7 @@
 ```
 make ssl=3.0.x      # build and run tests (OpenSSL 3.x)
 make ssl=1.1.x      # build and run tests (OpenSSL 1.1.x)
+make test-one t=TestName ssl=3.0.x  # run a single test by name
 make ssl=libressl   # build and run tests (LibreSSL)
 make clean           # clean build artifacts
 ```
