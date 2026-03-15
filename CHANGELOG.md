@@ -10,11 +10,11 @@ All notable changes to this project will be documented in this file. This projec
 ### Added
 
 - Add cookie parsing and serialization ([PR #80](https://github.com/ponylang/stallion/pull/80))
+- Add content negotiation ([PR #82](https://github.com/ponylang/stallion/pull/82))
 
 ### Changed
 
 - Change Headers.values() to yield Header val instead of tuples ([PR #80](https://github.com/ponylang/stallion/pull/80))
-
 
 ## [0.4.0] - 2026-03-03
 
