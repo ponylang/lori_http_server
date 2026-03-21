@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Update ponylang/ssl to 2.0.1 ([PR #86](https://github.com/ponylang/stallion/pull/86))
 
 ## [0.5.1] - 2026-03-15
 
