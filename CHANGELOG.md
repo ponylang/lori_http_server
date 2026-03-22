@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix premature idle timeouts on SSL connections ([PR #87](https://github.com/ponylang/stallion/pull/87))
 
 ### Added
 
