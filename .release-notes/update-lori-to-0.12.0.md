@@ -1,3 +1,3 @@
-## Update ponylang/lori to 0.12.0
+## Fix premature idle timeouts on SSL connections
 
-Updates the ponylang/lori dependency to 0.12.0 to pick up bug fixes for SSL idle timer handling and Happy Eyeballs connection cleanup.
+HTTPS connections with an idle timeout configured could be closed during the TLS handshake, before the connection was ready for application data. The idle timer is now deferred until the handshake completes.
