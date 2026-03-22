@@ -2,14 +2,11 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a CHANGELOG](http://keepachangelog.com/).
 
-## [unreleased] - unreleased
+## [0.5.2] - 2026-03-22
 
 ### Fixed
 
 - Fix premature idle timeouts on SSL connections ([PR #87](https://github.com/ponylang/stallion/pull/87))
-
-### Added
-
 
 ### Changed
 
