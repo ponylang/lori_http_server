@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add one-shot timer API ([PR #89](https://github.com/ponylang/stallion/pull/89))
 
 ### Changed
 
