@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix crash when dispose() arrives before connection initialization ([PR #91](https://github.com/ponylang/stallion/pull/91))
 
 ### Added
 
