@@ -2,17 +2,11 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a CHANGELOG](http://keepachangelog.com/).
 
-## [unreleased] - unreleased
-
-### Fixed
-
+## [0.5.4] - 2026-04-02
 
 ### Added
 
 - Add on_start_failure callback to HTTPServerLifecycleEventReceiver ([PR #93](https://github.com/ponylang/stallion/pull/93))
-
-### Changed
-
 
 ## [0.5.3] - 2026-03-28
 
