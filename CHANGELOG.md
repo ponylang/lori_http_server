@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Update lori to 0.13.1 ([PR #96](https://github.com/ponylang/stallion/pull/96))
 
 ### Added
 
