@@ -143,6 +143,12 @@ class HTTPServer is
   fun ref _on_timer(token: lori.TimerToken) =>
     _state.on_timer(this, token)
 
+  fun ref _on_idle_timer_failure() =>
+    _state.on_idle_timer_failure(this)
+
+  fun ref _on_timer_failure() =>
+    _state.on_timer_failure(this)
+
   //
   // _RequestParserNotify — forwarding parser events to receiver
   //
@@ -365,6 +371,26 @@ class HTTPServer is
     | None => _Unreachable()
     end
 
+  fun ref _handle_idle_timer_failure() =>
+    """
+    Auto-rearm the idle timer using the originally configured duration.
+    Stallion owns the idle timer, so recovery happens silently here
+    rather than leaving the connection without idle protection or
+    surfacing a failure users can't meaningfully act on.
+    """
+    match \exhaustive\ _config
+    | let c: ServerConfig => _tcp_connection.idle_timeout(c.idle_timeout)
+    | None => _Unreachable()
+    end
+
+  fun ref _handle_timer_failure() =>
+    """Forward user timer ASIO subscription failure to the receiver."""
+    match \exhaustive\ _lifecycle_event_receiver
+    | let r: HTTPServerLifecycleEventReceiver ref =>
+      r.on_timer_failure()
+    | None => _Unreachable()
+    end
+
   fun ref close() =>
     """
     Close the connection from the server actor.
@@ -411,6 +437,9 @@ class HTTPServer is
     already active returns `SetTimerAlreadyActive` — call `cancel_timer()`
     first. Requires the connection to be open; returns `SetTimerNotOpen` if
     not.
+
+    A successfully returned `TimerToken` may still fail asynchronously if
+    the underlying ASIO subscription is lost — see `on_timer_failure()`.
 
     Use `lori.MakeTimerDuration(milliseconds)` to create the duration value.
     """

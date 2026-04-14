@@ -6,9 +6,11 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Auto-rearm idle timer after ASIO subscription failure ([PR #98](https://github.com/ponylang/stallion/pull/98))
 
 ### Added
 
+- Add `on_timer_failure` callback ([PR #98](https://github.com/ponylang/stallion/pull/98))
 
 ### Changed
 

@@ -127,3 +127,18 @@ trait ref HTTPServerLifecycleEventReceiver
     activity.
     """
     None
+
+  fun ref on_timer_failure() =>
+    """
+    Called when a user timer's ASIO event subscription fails (e.g., the
+    kernel returned `ENOMEM` from `kevent` or `epoll_ctl`).
+
+    Before this callback fires, the timer has been cancelled — the token
+    returned by the originating `HTTPServer.set_timer()` call will not
+    produce an `on_timer()` notification. If your actor stored that
+    `TimerToken`, it is now stale; clear or replace it before re-arming.
+    The application decides how to recover: call `set_timer()` again to
+    retry, `HTTPServer.close()` to give up on the connection, or do
+    nothing if the deadline no longer matters. The default is a no-op.
+    """
+    None

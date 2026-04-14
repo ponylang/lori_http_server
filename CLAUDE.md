@@ -66,7 +66,7 @@ Follow the standard ponylang release notes conventions. Create individual `.md` 
   - `_request_parser.pony` — Request parser class (entry point, buffer management)
   - `request.pony` — Immutable request metadata bundle (`Request val`: method, URI, version, headers, cookies)
   - `chunk_send_token.pony` — Opaque chunk send token (`ChunkSendToken val`, `Equatable`, private constructor)
-  - `http_server_lifecycle_event_receiver.pony` — HTTP callback trait (`HTTPServerLifecycleEventReceiver`: on_request, on_body_chunk, on_request_complete, on_closed, on_start_failure, on_throttled, on_chunk_sent, on_unthrottled, on_timer)
+  - `http_server_lifecycle_event_receiver.pony` — HTTP callback trait (`HTTPServerLifecycleEventReceiver`: on_request, on_body_chunk, on_request_complete, on_closed, on_start_failure, on_throttled, on_chunk_sent, on_unthrottled, on_timer, on_timer_failure)
   - `http_server_actor.pony` — Server actor trait (`HTTPServerActor`: extends `TCPConnectionActor` and `HTTPServerLifecycleEventReceiver`, provides `_connection()` default)
   - `stallion.pony` — Package docstring
   - `http_server.pony` — Protocol class (`HTTPServer`: owns TCP connection + parser + URI parsing + response queue, implements `ServerLifecycleEventReceiver` + `_RequestParserNotify` + `_ResponseQueueNotify`)
