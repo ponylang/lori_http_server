@@ -31,6 +31,12 @@ trait ref _ConnectionState
   fun ref on_timer(server: HTTPServer ref, token: lori.TimerToken)
     """Handle one-shot timer firing."""
 
+  fun ref on_idle_timer_failure(server: HTTPServer ref)
+    """Handle idle timer ASIO subscription failure."""
+
+  fun ref on_timer_failure(server: HTTPServer ref)
+    """Handle user timer ASIO subscription failure."""
+
 class ref _Active is _ConnectionState
   """
   Connection is active — parsing requests and dispatching to the receiver.
@@ -57,6 +63,12 @@ class ref _Active is _ConnectionState
   fun ref on_timer(server: HTTPServer ref, token: lori.TimerToken) =>
     server._handle_timer(token)
 
+  fun ref on_idle_timer_failure(server: HTTPServer ref) =>
+    server._handle_idle_timer_failure()
+
+  fun ref on_timer_failure(server: HTTPServer ref) =>
+    server._handle_timer_failure()
+
 class ref _Closed is _ConnectionState
   """
   Connection is closed — all operations are no-ops.
@@ -81,4 +93,10 @@ class ref _Closed is _ConnectionState
     None
 
   fun ref on_timer(server: HTTPServer ref, token: lori.TimerToken) =>
+    None
+
+  fun ref on_idle_timer_failure(server: HTTPServer ref) =>
+    None
+
+  fun ref on_timer_failure(server: HTTPServer ref) =>
     None
