@@ -463,8 +463,17 @@ class \nodoc\ iso _PropertyKeepAliveDecision
     let known_gen: Generator[(String val | None)] =
       Generators.one_of[(String val | None)](
         [as (String val | None):
-          None; "close"; "Close"; "CLOSE"
-          "keep-alive"; "Keep-Alive"; "KEEP-ALIVE"])
+          None
+          // single-value forms
+          "close"; "Close"; "CLOSE"
+          "keep-alive"; "Keep-Alive"; "KEEP-ALIVE"
+          // multi-value with close
+          "close, te"; "te, close"; "Close , te"; "te,close"
+          // multi-value with keep-alive
+          "keep-alive, te"; "te, keep-alive"
+          // both present — close wins
+          "close, keep-alive"; "keep-alive, close"
+        ])
 
     let random_gen: Generator[(String val | None)] =
       Generators.ascii_printable(1, 20)
@@ -489,20 +498,27 @@ class \nodoc\ iso _PropertyKeepAliveDecision
 
     match connection
     | let c: String =>
-      let lower = c.lower()
-      if lower == "close" then
+      // Apply RFC 9110 §7.6.1 list semantics: scan tokens, close wins.
+      var saw_close: Bool = false
+      var saw_keep_alive: Bool = false
+      for raw in _AcceptParser._split_on_comma(c).values() do
+        let token = _AcceptParser._trim_whitespace(raw).lower()
+        if token == "close" then saw_close = true end
+        if token == "keep-alive" then saw_keep_alive = true end
+      end
+      if saw_close then
         ph.assert_false(result,
-          "Connection: close should always close")
+          "close as any list token should always close")
         return
       end
-      if lower == "keep-alive" then
+      if saw_keep_alive then
         ph.assert_true(result,
-          "Connection: keep-alive should always keep alive")
+          "keep-alive as any list token should always keep alive")
         return
       end
     end
 
-    // No header or unrecognized value: version-dependent
+    // No header or no recognized token: version-dependent
     if version is HTTP11 then
       ph.assert_true(result, "HTTP/1.1 default should be keep-alive")
     else
