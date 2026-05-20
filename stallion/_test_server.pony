@@ -95,6 +95,60 @@ class \nodoc\ iso _TestConnectionClose is UnitTest
       })
     h.dispose_when_done(listener)
 
+class \nodoc\ iso _TestConnectionCloseListValue is UnitTest
+  """
+  Send an HTTP/1.1 request with a multi-token Connection header
+  (`Connection: close, te`). Per RFC 9110 §7.6.1 the header is a
+  comma-separated list and `close` as any token must close the
+  connection. This is the proxy use case from .release-notes/99.md:
+  HAProxy and similar proxies routinely emit multi-value Connection
+  options when normalizing headers.
+  """
+  fun name(): String => "server/connection close list value"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45914"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port, _TestHelloServerFactory,
+      config,
+      {(h': TestHelper, port': String) =>
+        let request =
+          "GET / HTTP/1.1\r\nHost: localhost\r\n"
+          + "Connection: close, te\r\n\r\n"
+        let client = _TestHTTPClientExpectClose(h', port', request, "200 OK")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
+class \nodoc\ iso _TestConnectionCloseMultiHeader is UnitTest
+  """
+  Send an HTTP/1.1 request with two separate `Connection:` header field
+  lines (`Connection: keep-alive` and `Connection: close`). Per RFC 9110
+  §5.3 multiple field lines with the same name are equivalent to a single
+  comma-joined value, so `close` must close the connection even though
+  `keep-alive` appears first. This exercises the cross-header token scan,
+  which a single-line variant cannot reach.
+  """
+  fun name(): String => "server/connection close multi-header"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    let port = "45915"
+    let host = ifdef linux then "127.0.0.2" else "localhost" end
+    let config = ServerConfig(host, port)
+    let listener = _TestServerListener(h, port, _TestHelloServerFactory,
+      config,
+      {(h': TestHelper, port': String) =>
+        let request =
+          "GET / HTTP/1.1\r\nHost: localhost\r\n"
+          + "Connection: keep-alive\r\nConnection: close\r\n\r\n"
+        let client = _TestHTTPClientExpectClose(h', port', request, "200 OK")
+        h'.dispose_when_done(client)
+      })
+    h.dispose_when_done(listener)
+
 class \nodoc\ iso _TestHTTP10Close is UnitTest
   """
   Send an HTTP/1.0 request without Connection: keep-alive. Verify the
@@ -445,25 +499,37 @@ actor \nodoc\ _TestTimerServer is HTTPServerActor
 // ---------------------------------------------------------------------------
 
 class \nodoc\ iso _PropertyKeepAliveDecision
-  is Property1[(Version, (String val | None))]
+  is Property1[(Version, Array[String val] ref)]
   """
-  The keep-alive decision matches the HTTP/1.x spec:
-  - HTTP/1.1 + no header -> keep-alive
-  - HTTP/1.1 + Connection: close (any case) -> close
-  - HTTP/1.0 + no header -> close
-  - HTTP/1.0 + Connection: keep-alive (any case) -> keep-alive
-  - Unrecognized Connection values use version default
+  The keep-alive decision matches RFC 9110 §7.6.1 / §5.3 across
+  arbitrary `Connection` header configurations:
+
+  - No `Connection` header → HTTP/1.1 keeps alive, HTTP/1.0 closes.
+  - Any token equal to `close` (case-insensitive, OWS-trimmed) in
+    any `Connection` header → close.
+  - Otherwise, any token equal to `keep-alive` → keep alive.
+  - When both `close` and `keep-alive` tokens appear (in the same
+    header or across multiple headers), `close` wins.
+
+  The generated input is an array of zero or more `Connection`
+  header values, allowing the test to exercise the no-header,
+  single-header, and multi-header (RFC 9110 §5.3) shapes.
+
+  The expected value is computed by an independent naive
+  tokenizer (`_naive_split` / `_naive_trim`) that does NOT share
+  code with `_AcceptParser`. Without this independence, a bug in
+  the shared tokenizer would affect both sides identically and the
+  property would silently pass.
   """
   fun name(): String => "keep-alive/decision"
 
-  fun gen(): Generator[(Version, (String val | None))] =>
+  fun gen(): Generator[(Version, Array[String val] ref)] =>
     let version_gen = Generators.one_of[Version](
       [as Version: HTTP10; HTTP11])
 
-    let known_gen: Generator[(String val | None)] =
-      Generators.one_of[(String val | None)](
-        [as (String val | None):
-          None
+    let known_value_gen: Generator[String val] =
+      Generators.one_of[String val](
+        [as String val:
           // single-value forms
           "close"; "Close"; "CLOSE"
           "keep-alive"; "Keep-Alive"; "KEEP-ALIVE"
@@ -471,59 +537,119 @@ class \nodoc\ iso _PropertyKeepAliveDecision
           "close, te"; "te, close"; "Close , te"; "te,close"
           // multi-value with keep-alive
           "keep-alive, te"; "te, keep-alive"
-          // both present — close wins
+          // both present in one header — close wins
           "close, keep-alive"; "keep-alive, close"
+          // non-matching list tokens
+          "te"; "upgrade"; "trailers"
+          // false-positive resistance
+          "closer"; "keep-alive-ish"
+          // edge whitespace and commas
+          ""; "   "; "\t"; ","; ",close"; "close,"; ",,close,,"
+          // tab OWS — the reason _trim_whitespace handles HTAB
+          "\tclose"; "close\t"; "close,\tte"
         ])
 
-    let random_gen: Generator[(String val | None)] =
+    let random_value_gen: Generator[String val] =
       Generators.ascii_printable(1, 20)
-        .map[(String val | None)](
-          {(s: String val): (String val | None) => s})
 
-    let connection_gen = Generators.frequency[(String val | None)]([
-      as WeightedGenerator[(String val | None)]:
-      (5, known_gen)
-      (2, random_gen)
+    let value_gen = Generators.frequency[String val]([
+      as WeightedGenerator[String val]:
+      (5, known_value_gen)
+      (2, random_value_gen)
     ])
 
-    Generators.zip2[Version, (String val | None)](
-      version_gen, connection_gen)
+    // 0..3 Connection header entries: exercises no-header, single-
+    // header, and multi-header (§5.3) shapes.
+    let values_gen = Generators.array_of[String val](value_gen, 0, 3)
+
+    Generators.zip2[Version, Array[String val] ref](
+      version_gen, values_gen)
 
   fun ref property(
-    arg1: (Version, (String val | None)),
+    arg1: (Version, Array[String val] ref),
     ph: PropertyHelper)
   =>
-    (let version, let connection) = arg1
-    let result = _KeepAliveDecision(version, connection)
+    (let version, let connection_values) = arg1
 
-    match connection
-    | let c: String =>
-      // Apply RFC 9110 §7.6.1 list semantics: scan tokens, close wins.
-      var saw_close: Bool = false
-      var saw_keep_alive: Bool = false
-      for raw in _AcceptParser._split_on_comma(c).values() do
-        let token = _AcceptParser._trim_whitespace(raw).lower()
+    let headers = Headers
+    for v in connection_values.values() do
+      headers.add("Connection", v)
+    end
+
+    let result = _KeepAliveDecision(version, headers)
+
+    // Independent oracle: split each header value on a literal `,`
+    // (the Connection grammar has no quoted strings), trim SP and
+    // HTAB, lowercase, and check for the two recognized tokens.
+    var saw_close: Bool = false
+    var saw_keep_alive: Bool = false
+    for value in connection_values.values() do
+      for raw in _naive_split(value, ',').values() do
+        let token = _naive_trim(raw).lower()
         if token == "close" then saw_close = true end
         if token == "keep-alive" then saw_keep_alive = true end
       end
-      if saw_close then
-        ph.assert_false(result,
-          "close as any list token should always close")
-        return
-      end
-      if saw_keep_alive then
-        ph.assert_true(result,
-          "keep-alive as any list token should always keep alive")
-        return
-      end
     end
 
-    // No header or no recognized token: version-dependent
+    if saw_close then
+      ph.assert_false(result,
+        "close as a token in any Connection header should close")
+      return
+    end
+    if saw_keep_alive then
+      ph.assert_true(result,
+        "keep-alive as a token in any Connection header should keep alive")
+      return
+    end
+
+    // No Connection header or no recognized token: version-dependent.
     if version is HTTP11 then
       ph.assert_true(result, "HTTP/1.1 default should be keep-alive")
     else
       ph.assert_false(result, "HTTP/1.0 default should be close")
     end
+
+  fun _naive_split(s: String val, sep: U8): Array[String val] val =>
+    """
+    Plain split on a single-byte separator. Independent of
+    `_AcceptParser._split_on_comma` so that the property oracle does
+    not share code with the implementation under test.
+    """
+    let result = recover iso Array[String val] end
+    var start: USize = 0
+    var i: USize = 0
+    let size = s.size()
+    while i < size do
+      if try s(i)? == sep else false end then
+        result.push(s.trim(start, i))
+        start = i + 1
+      end
+      i = i + 1
+    end
+    result.push(s.trim(start, size))
+    consume result
+
+  fun _naive_trim(s: String val): String val =>
+    """
+    Trim leading and trailing SP and HTAB. Implemented with a single
+    scan from each end to differ structurally from
+    `_AcceptParser._trim_whitespace`, so a bug in that helper would
+    not be inherited by the oracle.
+    """
+    let size = s.size()
+    var first: USize = 0
+    var last: USize = size
+    while first < last do
+      let b = try s(first)? else break end
+      if (b == ' ') or (b == '\t') then first = first + 1
+      else break end
+    end
+    while last > first do
+      let b = try s(last - 1)? else break end
+      if (b == ' ') or (b == '\t') then last = last - 1
+      else break end
+    end
+    s.trim(first, last)
 
 // ---------------------------------------------------------------------------
 // Test-only connection factory interface

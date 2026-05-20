@@ -77,6 +77,8 @@ actor \nodoc\ Main is TestList
     test(_TestServerParseError)
     test(_TestKeepAlive)
     test(_TestConnectionClose)
+    test(_TestConnectionCloseListValue)
+    test(_TestConnectionCloseMultiHeader)
     test(_TestHTTP10Close)
     test(_TestErrorResponse413)
     test(_TestErrorResponse431)
@@ -87,7 +89,7 @@ actor \nodoc\ Main is TestList
     test(_TestServerTimerCancelled)
 
     // Keep-alive decision property test
-    test(Property1UnitTest[(Version, (String val | None))](
+    test(Property1UnitTest[(Version, Array[String val] ref)](
       _PropertyKeepAliveDecision))
 
     // Chunked encoder tests

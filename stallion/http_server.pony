@@ -180,7 +180,7 @@ class HTTPServer is
         end
       end
 
-    let keep_alive = _KeepAliveDecision(version, headers.get("connection"))
+    let keep_alive = _KeepAliveDecision(version, headers)
     let cookies = ParseCookies.from_headers(headers)
     let req = Request(method, parsed_uri, version, headers, cookies)
     _current_request = req
