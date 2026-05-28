@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Require ponyc 0.64.0 or later ([PR #111](https://github.com/ponylang/stallion/pull/111))
 
 ## [0.6.1] - 2026-04-14
 
